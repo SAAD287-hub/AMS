@@ -1,0 +1,1027 @@
+from django.contrib.auth.models import Group, Permission, User
+from django.test import TestCase
+from rest_framework.test import APIClient
+
+from ams.permissions_manifest import MODULES, READ_PERMS
+from inventory.models import Location, LocationType
+from user_management.services.capability_service import (
+    compute_capabilities_for_user,
+    resolve_selections_to_codenames,
+)
+from user_management.signals import EXPLICIT_PERMISSION_IMPLICATIONS
+
+
+class CapabilityManifestLocationsTests(TestCase):
+    def _perm(self, dotted):
+        app_label, codename = dotted.split('.', 1)
+        return Permission.objects.get(content_type__app_label=app_label, codename=codename)
+
+    def test_resolve_locations_manage_includes_domain_perms(self):
+        resolved = resolve_selections_to_codenames({'locations': 'manage'})
+        self.assertIn('inventory.view_locations', resolved)
+        self.assertIn('inventory.create_locations', resolved)
+        self.assertIn('inventory.edit_locations', resolved)
+        self.assertNotIn('inventory.delete_locations', resolved)
+
+    def test_users_manage_read_dependency_grants_domain_locations_view(self):
+        resolved = resolve_selections_to_codenames({
+            'users': 'manage',
+            'roles': None,
+            'locations': None,
+        })
+
+        self.assertIn('user_management.view_roles', resolved)
+        self.assertIn('inventory.view_locations', resolved)
+
+    def test_users_manage_back_computes_roles_and_locations_view(self):
+        resolved = resolve_selections_to_codenames({
+            'users': 'manage',
+            'roles': None,
+            'locations': None,
+        })
+        selections = {}
+        for module, levels in MODULES.items():
+            current = None
+            for level_name in ('view', 'manage', 'full'):
+                if level_name in levels and set(levels[level_name]['perms']).issubset(resolved):
+                    current = level_name
+            selections[module] = current
+
+        self.assertEqual(selections['users'], 'manage')
+        self.assertEqual(selections['roles'], 'view')
+        self.assertEqual(selections['locations'], 'view')
+
+    def test_locations_module_declared_with_view_manage_full(self):
+        self.assertIn('locations', MODULES)
+        self.assertIn('view', MODULES['locations'])
+        self.assertIn('manage', MODULES['locations'])
+        self.assertIn('full', MODULES['locations'])
+
+    def test_location_permission_implications_declared(self):
+        self.assertEqual(
+            EXPLICIT_PERMISSION_IMPLICATIONS.get('create_locations'),
+            ['view_locations'],
+        )
+        self.assertEqual(
+            EXPLICIT_PERMISSION_IMPLICATIONS.get('edit_locations'),
+            ['view_locations'],
+        )
+        self.assertEqual(
+            EXPLICIT_PERMISSION_IMPLICATIONS.get('delete_locations'),
+            ['view_locations'],
+        )
+
+    def test_group_signal_adds_implied_view_locations(self):
+        group = Group.objects.create(name='Loc Managers')
+        create_perm = self._perm('inventory.create_locations')
+        view_perm = self._perm('inventory.view_locations')
+
+        group.permissions.add(create_perm)
+
+        self.assertTrue(group.permissions.filter(pk=view_perm.pk).exists())
+
+    def test_compute_capabilities_reports_locations_level(self):
+        user = User.objects.create_user(username='cap_locs', password='x')
+        group = Group.objects.create(name='Location Full')
+        for dotted in MODULES['locations']['full']['perms']:
+            group.permissions.add(self._perm(dotted))
+        user.groups.add(group)
+
+        caps = compute_capabilities_for_user(user)
+        self.assertEqual(caps['locations'], 'full')
+
+
+class CapabilityManifestCategoriesTests(TestCase):
+    def _perm(self, dotted):
+        app_label, codename = dotted.split('.', 1)
+        return Permission.objects.get(content_type__app_label=app_label, codename=codename)
+
+    def test_resolve_categories_manage_includes_domain_perms(self):
+        resolved = resolve_selections_to_codenames({'categories': 'manage'})
+        self.assertIn('inventory.view_categories', resolved)
+        self.assertIn('inventory.create_categories', resolved)
+        self.assertIn('inventory.edit_categories', resolved)
+        self.assertNotIn('inventory.delete_categories', resolved)
+
+    def test_categories_module_declared_with_view_manage_full(self):
+        self.assertIn('categories', MODULES)
+        self.assertIn('view', MODULES['categories'])
+        self.assertIn('manage', MODULES['categories'])
+        self.assertIn('full', MODULES['categories'])
+
+    def test_categories_read_perm_declared(self):
+        self.assertEqual(
+            READ_PERMS.get('categories'),
+            ['inventory.view_categories'],
+        )
+
+    def test_compute_capabilities_reports_categories_level(self):
+        user = User.objects.create_user(username='cap_categories', password='x')
+        group = Group.objects.create(name='Category Full')
+        for dotted in MODULES['categories']['full']['perms']:
+            group.permissions.add(self._perm(dotted))
+        user.groups.add(group)
+
+        caps = compute_capabilities_for_user(user)
+        self.assertEqual(caps['categories'], 'full')
+
+
+class CapabilityManifestCategoriesImplicationTests(TestCase):
+    def _perm(self, dotted):
+        app_label, codename = dotted.split('.', 1)
+        return Permission.objects.get(content_type__app_label=app_label, codename=codename)
+
+    def test_create_categories_implies_view_categories(self):
+        group = Group.objects.create(name='Category Managers Create')
+        create_perm = self._perm('inventory.create_categories')
+        view_perm = self._perm('inventory.view_categories')
+
+        group.permissions.add(create_perm)
+
+        self.assertTrue(group.permissions.filter(pk=view_perm.pk).exists())
+
+    def test_edit_categories_implies_view_categories(self):
+        group = Group.objects.create(name='Category Managers Edit')
+        edit_perm = self._perm('inventory.edit_categories')
+        view_perm = self._perm('inventory.view_categories')
+
+        group.permissions.add(edit_perm)
+
+        self.assertTrue(group.permissions.filter(pk=view_perm.pk).exists())
+
+    def test_delete_categories_implies_view_categories(self):
+        group = Group.objects.create(name='Category Managers Delete')
+        delete_perm = self._perm('inventory.delete_categories')
+        view_perm = self._perm('inventory.view_categories')
+
+        group.permissions.add(delete_perm)
+
+        self.assertTrue(group.permissions.filter(pk=view_perm.pk).exists())
+
+
+class CapabilityManifestItemsTests(TestCase):
+    def _perm(self, dotted):
+        app_label, codename = dotted.split('.', 1)
+        return Permission.objects.get(content_type__app_label=app_label, codename=codename)
+
+    def test_resolve_items_manage_includes_domain_perms_and_category_read(self):
+        resolved = resolve_selections_to_codenames({'items': 'manage'})
+        self.assertIn('inventory.view_items', resolved)
+        self.assertIn('inventory.create_items', resolved)
+        self.assertIn('inventory.edit_items', resolved)
+        self.assertIn('inventory.view_categories', resolved)
+        self.assertNotIn('inventory.delete_items', resolved)
+
+    def test_inspections_stage_three_grants_items_manage_dependency(self):
+        resolved = resolve_selections_to_codenames(
+            {'inspections': 'manage', 'items': None},
+            inspection_stages=['fill_central_register'],
+        )
+
+        self.assertIn('inventory.fill_central_register', resolved)
+        self.assertIn('inventory.view_items', resolved)
+        self.assertIn('inventory.create_items', resolved)
+        self.assertIn('inventory.edit_items', resolved)
+        self.assertIn('inventory.view_categories', resolved)
+        self.assertNotIn('inventory.delete_items', resolved)
+
+    def test_inspections_stage_four_grants_depreciation_manage_dependency(self):
+        resolved = resolve_selections_to_codenames(
+            {'inspections': 'manage', 'depreciation': None},
+            inspection_stages=['review_finance'],
+        )
+
+        self.assertIn('inventory.review_finance', resolved)
+        self.assertIn('inventory.view_depreciation', resolved)
+        self.assertIn('inventory.manage_depreciation', resolved)
+        self.assertIn('inventory.view_items', resolved)
+        self.assertIn('inventory.view_categories', resolved)
+        self.assertIn('inventory.view_locations', resolved)
+        self.assertNotIn('inventory.post_depreciation', resolved)
+
+    def test_items_module_declared_with_view_manage_full(self):
+        self.assertIn('items', MODULES)
+        self.assertIn('view', MODULES['items'])
+        self.assertIn('manage', MODULES['items'])
+        self.assertIn('full', MODULES['items'])
+
+    def test_items_read_perm_declared(self):
+        self.assertEqual(
+            READ_PERMS.get('items'),
+            ['inventory.view_items'],
+        )
+
+    def test_compute_capabilities_reports_items_level(self):
+        user = User.objects.create_user(username='cap_items', password='x')
+        group = Group.objects.create(name='Items Full')
+        for dotted in MODULES['items']['full']['perms']:
+            group.permissions.add(self._perm(dotted))
+        user.groups.add(group)
+
+        caps = compute_capabilities_for_user(user)
+        self.assertEqual(caps['items'], 'full')
+
+    def test_dependency_only_read_modules_resolve_to_read_perms(self):
+        resolved = resolve_selections_to_codenames({
+            'persons': 'view',
+            'stock-registers': 'view',
+        })
+
+        self.assertIn('inventory.view_person', resolved)
+        self.assertIn('inventory.view_stock_registers', resolved)
+        self.assertNotIn('inventory.view_stockregister', resolved)
+
+
+class CapabilityManifestStockRegistersTests(TestCase):
+    def _perm(self, dotted):
+        app_label, codename = dotted.split('.', 1)
+        return Permission.objects.get(content_type__app_label=app_label, codename=codename)
+
+    def test_resolve_stock_registers_manage_includes_domain_perms_and_locations_read(self):
+        resolved = resolve_selections_to_codenames({'stock-registers': 'manage'})
+
+        self.assertIn('inventory.view_stock_registers', resolved)
+        self.assertIn('inventory.create_stock_registers', resolved)
+        self.assertIn('inventory.edit_stock_registers', resolved)
+        self.assertIn('inventory.view_locations', resolved)
+        self.assertIn('inventory.view_location', resolved)
+        self.assertNotIn('inventory.delete_stock_registers', resolved)
+
+    def test_stock_registers_module_declared_with_view_manage_full(self):
+        self.assertIn('stock-registers', MODULES)
+        self.assertIn('view', MODULES['stock-registers'])
+        self.assertIn('manage', MODULES['stock-registers'])
+        self.assertIn('full', MODULES['stock-registers'])
+
+    def test_stock_registers_read_perms_declared(self):
+        self.assertEqual(
+            READ_PERMS.get('stock-registers'),
+            ['inventory.view_stock_registers', 'inventory.view_stockregister'],
+        )
+
+    def test_compute_capabilities_reports_stock_registers_level(self):
+        user = User.objects.create_user(username='cap_stock_registers', password='x')
+        group = Group.objects.create(name='Stock Registers Manage')
+        for dotted in MODULES['stock-registers']['manage']['perms']:
+            group.permissions.add(self._perm(dotted))
+        user.groups.add(group)
+
+        caps = compute_capabilities_for_user(user)
+        self.assertEqual(caps['stock-registers'], 'manage')
+
+
+class CapabilityManifestReportsTests(TestCase):
+    def _perm(self, dotted):
+        app_label, codename = dotted.split('.', 1)
+        return Permission.objects.get(content_type__app_label=app_label, codename=codename)
+
+    def test_resolve_reports_view_includes_report_and_data_read_perms(self):
+        resolved = resolve_selections_to_codenames({'reports': 'view'})
+
+        self.assertIn('inventory.view_reports', resolved)
+        self.assertIn('inventory.view_items', resolved)
+        self.assertIn('inventory.view_locations', resolved)
+        self.assertIn('inventory.view_stock_entries', resolved)
+        self.assertIn('inventory.view_stockallocation', resolved)
+        self.assertIn('inventory.view_inspectioncertificate', resolved)
+        self.assertIn('inventory.view_depreciation', resolved)
+
+    def test_reports_module_declared_as_view_only(self):
+        self.assertIn('reports', MODULES)
+        self.assertEqual(list(MODULES['reports'].keys()), ['view'])
+
+    def test_reports_read_perm_declared(self):
+        self.assertEqual(
+            READ_PERMS.get('reports'),
+            ['inventory.view_reports'],
+        )
+
+    def test_compute_capabilities_reports_reports_level(self):
+        user = User.objects.create_user(username='cap_reports', password='x')
+        group = Group.objects.create(name='Reports View')
+        for dotted in MODULES['reports']['view']['perms']:
+            group.permissions.add(self._perm(dotted))
+        user.groups.add(group)
+
+        caps = compute_capabilities_for_user(user)
+        self.assertEqual(caps['reports'], 'view')
+
+
+class CapabilityManifestStockRegistersImplicationTests(TestCase):
+    def _perm(self, dotted):
+        app_label, codename = dotted.split('.', 1)
+        return Permission.objects.get(content_type__app_label=app_label, codename=codename)
+
+    def test_create_stock_registers_implies_view_stock_registers(self):
+        group = Group.objects.create(name='Stock Register Managers Create')
+        create_perm = self._perm('inventory.create_stock_registers')
+        view_perm = self._perm('inventory.view_stock_registers')
+
+        group.permissions.add(create_perm)
+
+        self.assertTrue(group.permissions.filter(pk=view_perm.pk).exists())
+
+    def test_edit_stock_registers_implies_view_stock_registers(self):
+        group = Group.objects.create(name='Stock Register Managers Edit')
+        edit_perm = self._perm('inventory.edit_stock_registers')
+        view_perm = self._perm('inventory.view_stock_registers')
+
+        group.permissions.add(edit_perm)
+
+        self.assertTrue(group.permissions.filter(pk=view_perm.pk).exists())
+
+    def test_delete_stock_registers_implies_view_stock_registers(self):
+        group = Group.objects.create(name='Stock Register Managers Delete')
+        delete_perm = self._perm('inventory.delete_stock_registers')
+        view_perm = self._perm('inventory.view_stock_registers')
+
+        group.permissions.add(delete_perm)
+
+        self.assertTrue(group.permissions.filter(pk=view_perm.pk).exists())
+
+
+class CapabilityManifestItemsImplicationTests(TestCase):
+    def _perm(self, dotted):
+        app_label, codename = dotted.split('.', 1)
+        return Permission.objects.get(content_type__app_label=app_label, codename=codename)
+
+    def test_create_items_implies_view_items(self):
+        group = Group.objects.create(name='Items Managers Create')
+        create_perm = self._perm('inventory.create_items')
+        view_perm = self._perm('inventory.view_items')
+
+        group.permissions.add(create_perm)
+
+        self.assertTrue(group.permissions.filter(pk=view_perm.pk).exists())
+
+    def test_edit_items_implies_view_items(self):
+        group = Group.objects.create(name='Items Managers Edit')
+        edit_perm = self._perm('inventory.edit_items')
+        view_perm = self._perm('inventory.view_items')
+
+        group.permissions.add(edit_perm)
+
+        self.assertTrue(group.permissions.filter(pk=view_perm.pk).exists())
+
+    def test_delete_items_implies_view_items(self):
+        group = Group.objects.create(name='Items Managers Delete')
+        delete_perm = self._perm('inventory.delete_items')
+        view_perm = self._perm('inventory.view_items')
+
+        group.permissions.add(delete_perm)
+
+        self.assertTrue(group.permissions.filter(pk=view_perm.pk).exists())
+
+
+class RoleManagementMetadataApiTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(username='role.creator', password='pw')
+        self.user.user_permissions.add(
+            self._perm('view_roles'),
+            self._perm('create_roles'),
+            self._perm('assign_permissions_to_roles'),
+        )
+
+    def _perm(self, codename):
+        return Permission.objects.get(content_type__app_label='user_management', codename=codename)
+
+    def test_role_list_exposes_created_timestamp_creator_and_counts(self):
+        self.client.force_authenticate(user=self.user)
+
+        create_response = self.client.post(
+            '/api/users/groups/',
+            {
+                'name': 'Inventory Viewer',
+                'module_selections': {
+                    'items': 'view',
+                },
+            },
+            format='json',
+        )
+
+        self.assertEqual(create_response.status_code, 201, create_response.data)
+        group_id = create_response.data['id']
+
+        list_response = self.client.get('/api/users/groups/')
+        self.assertEqual(list_response.status_code, 200)
+        rows = list_response.data['results'] if isinstance(list_response.data, dict) and 'results' in list_response.data else list_response.data
+        row = next(item for item in rows if item['id'] == group_id)
+
+        self.assertIsNotNone(row['created_at'])
+        self.assertEqual(row['created_by_name'], 'role.creator')
+        self.assertEqual(row['user_count'], 0)
+        self.assertGreaterEqual(row['permission_count'], 1)
+
+    def test_role_list_reports_assigned_user_count(self):
+        group = Group.objects.create(name='Assigned Role')
+        first = User.objects.create_user(username='role.assignee.one', password='pw')
+        second = User.objects.create_user(username='role.assignee.two', password='pw')
+        first.groups.add(group)
+        second.groups.add(group)
+
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get('/api/users/groups/')
+
+        self.assertEqual(response.status_code, 200)
+        rows = response.data['results'] if isinstance(response.data, dict) and 'results' in response.data else response.data
+        row = next(item for item in rows if item['id'] == group.id)
+        self.assertEqual(row['user_count'], 2)
+
+
+class UserManagementLocationAssignmentScopeTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.root = Location.objects.create(
+            name='University Root',
+            location_type=LocationType.DEPARTMENT,
+            is_standalone=True,
+        )
+        cls.csit = Location.objects.create(
+            name='CSIT',
+            location_type=LocationType.DEPARTMENT,
+            parent_location=cls.root,
+            is_standalone=True,
+        )
+        cls.csit.refresh_from_db()
+        cls.csit_store = cls.csit.auto_created_store
+        cls.csit_lab = Location.objects.create(
+            name='CSIT Lab',
+            location_type=LocationType.LAB,
+            parent_location=cls.csit,
+            is_standalone=False,
+        )
+        cls.mechanical = Location.objects.create(
+            name='Mechanical',
+            location_type=LocationType.DEPARTMENT,
+            parent_location=cls.root,
+            is_standalone=True,
+        )
+        cls.basic_group = Group.objects.create(name='Scoped Basic User')
+
+    def setUp(self):
+        self.client = APIClient()
+
+    def _perm(self, codename):
+        return Permission.objects.get(
+            content_type__app_label='user_management',
+            codename=codename,
+        )
+
+    def _inventory_perm(self, codename):
+        return Permission.objects.get(
+            content_type__app_label='inventory',
+            codename=codename,
+        )
+
+    def _make_user_manager(self, username, assigned_location):
+        user = User.objects.create_user(username=username, password='pw')
+        user.user_permissions.add(self._perm('create_user_accounts'))
+        user.profile.assigned_locations.add(assigned_location)
+        return user
+
+    def _make_managed_user(self, username, assigned_location):
+        user = User.objects.create_user(
+            username=username,
+            password='pw',
+            email=f'{username}@example.com',
+        )
+        user.profile.assigned_locations.add(assigned_location)
+        return user
+
+    def _rows(self, resp):
+        if isinstance(resp.data, dict) and 'results' in resp.data:
+            return resp.data['results']
+        return resp.data
+
+    def test_current_user_ai_preference_defaults_false(self):
+        user = self._make_managed_user('ai_default_user', self.csit_lab)
+        self.client.force_authenticate(user=user)
+
+        resp = self.client.get('/auth/users/me/')
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('ai_enabled', resp.data)
+        self.assertIs(resp.data['ai_enabled'], False)
+
+    def test_non_admin_can_toggle_own_ai_preference_without_privilege_escalation(self):
+        user = self._make_managed_user('ai_self_toggle_user', self.csit_lab)
+        self.client.force_authenticate(user=user)
+
+        resp = self.client.patch(
+            f'/api/users/management/{user.id}/',
+            {
+                'first_name': 'AI',
+                'ai_enabled': True,
+                'is_superuser': True,
+            },
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 200, resp.data)
+        user.refresh_from_db()
+        user.profile.refresh_from_db()
+        self.assertEqual(user.first_name, 'AI')
+        self.assertTrue(user.profile.ai_enabled)
+        self.assertFalse(user.is_superuser)
+        self.assertTrue(resp.data['ai_enabled'])
+
+    def test_ai_preference_persists_per_user_and_can_be_disabled_with_multipart(self):
+        user = self._make_managed_user('ai_persistent_user', self.csit_lab)
+        other = self._make_managed_user('ai_other_user', self.csit_lab)
+        self.client.force_authenticate(user=user)
+
+        for enabled in [True, False]:
+            response = self.client.patch(
+                f'/api/users/management/{user.id}/',
+                {'ai_enabled': str(enabled).lower()},
+                format='multipart',
+            )
+            self.assertEqual(response.status_code, 200, response.data)
+            self.assertIs(response.data['ai_enabled'], enabled)
+
+            # A new authentication session must read the saved account setting.
+            self.client.force_authenticate(user=User.objects.get(pk=user.pk))
+            current = self.client.get('/auth/users/me/')
+            self.assertEqual(current.status_code, 200)
+            self.assertIs(current.data['ai_enabled'], enabled)
+
+            self.client.force_authenticate(user=other)
+            current = self.client.get('/auth/users/me/')
+            self.assertIs(current.data['ai_enabled'], False)
+            self.client.force_authenticate(user=user)
+
+    def test_non_admin_cannot_change_another_users_ai_preference(self):
+        user = self._make_managed_user('ai_self_only_user', self.csit_lab)
+        other = self._make_managed_user('ai_protected_user', self.csit_lab)
+        self.client.force_authenticate(user=user)
+
+        response = self.client.patch(
+            f'/api/users/management/{other.id}/',
+            {'ai_enabled': True},
+            format='json',
+        )
+
+        self.assertIn(response.status_code, [403, 404])
+        other.profile.refresh_from_db()
+        self.assertFalse(other.profile.ai_enabled)
+
+    def test_scoped_user_manager_can_assign_descendant_location(self):
+        manager = self._make_user_manager('csit_manager', self.csit)
+        manager.user_permissions.add(self._perm('assign_user_locations'), self._perm('assign_user_roles'))
+        self.client.force_authenticate(user=manager)
+
+        resp = self.client.post(
+            '/api/users/management/',
+            {
+                'username': 'csit_child_user',
+                'password': 'pw',
+                'email': 'csit_child@example.com',
+                'first_name': 'CSIT',
+                'last_name': 'Child',
+                'assigned_locations': [self.csit_lab.id],
+                'groups': [self.basic_group.id],
+            },
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 201)
+        created = User.objects.get(username='csit_child_user')
+        self.assertTrue(
+            created.profile.assigned_locations.filter(pk=self.csit_lab.pk).exists()
+        )
+
+    def test_scoped_user_manager_cannot_assign_sibling_department(self):
+        manager = self._make_user_manager('csit_manager_blocked', self.csit)
+        manager.user_permissions.add(self._perm('assign_user_locations'))
+        self.client.force_authenticate(user=manager)
+
+        resp = self.client.post(
+            '/api/users/management/',
+            {
+                'username': 'mechanical_user',
+                'password': 'pw',
+                'email': 'mechanical@example.com',
+                'first_name': 'Mechanical',
+                'last_name': 'User',
+                'assigned_locations': [self.mechanical.id],
+            },
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('assigned_locations', resp.data)
+        self.assertFalse(User.objects.filter(username='mechanical_user').exists())
+
+    def test_view_all_user_accounts_does_not_bypass_location_assignment_scope(self):
+        manager = self._make_user_manager('csit_view_all_manager', self.csit)
+        manager.user_permissions.add(self._perm('view_all_user_accounts'))
+        manager.user_permissions.add(self._perm('assign_user_locations'))
+        self.client.force_authenticate(user=manager)
+
+        resp = self.client.post(
+            '/api/users/management/',
+            {
+                'username': 'mechanical_view_all_user',
+                'password': 'pw',
+                'email': 'mechanical_view_all@example.com',
+                'first_name': 'Mechanical',
+                'last_name': 'ViewAll',
+                'assigned_locations': [self.mechanical.id],
+            },
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('assigned_locations', resp.data)
+        self.assertFalse(User.objects.filter(username='mechanical_view_all_user').exists())
+
+    def test_system_admin_role_does_not_bypass_location_assignment_scope(self):
+        manager = self._make_user_manager('csit_system_admin_manager', self.csit)
+        group = Group.objects.create(name='System Admin')
+        manager.groups.add(group)
+        manager.user_permissions.add(self._perm('assign_user_locations'))
+        self.client.force_authenticate(user=manager)
+
+        resp = self.client.post(
+            '/api/users/management/',
+            {
+                'username': 'mechanical_system_admin_user',
+                'password': 'pw',
+                'email': 'mechanical_system_admin@example.com',
+                'first_name': 'Mechanical',
+                'last_name': 'SystemAdmin',
+                'assigned_locations': [self.mechanical.id],
+            },
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('assigned_locations', resp.data)
+        self.assertFalse(User.objects.filter(username='mechanical_system_admin_user').exists())
+
+    def test_view_all_user_accounts_list_is_location_scoped_for_non_root_user(self):
+        manager = self._make_user_manager('csit_view_all_lister', self.csit)
+        manager.user_permissions.add(self._perm('view_all_user_accounts'))
+        csit_user = self._make_managed_user('csit_listed_user', self.csit_lab)
+        mechanical_user = self._make_managed_user('mechanical_hidden_user', self.mechanical)
+        self.client.force_authenticate(user=manager)
+
+        resp = self.client.get('/api/users/management/')
+
+        self.assertEqual(resp.status_code, 200)
+        returned_ids = {row['id'] for row in self._rows(resp)}
+        self.assertIn(manager.id, returned_ids)
+        self.assertIn(csit_user.id, returned_ids)
+        self.assertNotIn(mechanical_user.id, returned_ids)
+
+    def test_group_based_view_all_user_accounts_list_is_location_scoped_for_non_root_user(self):
+        manager = self._make_user_manager('csit_group_view_all_lister', self.csit)
+        group = Group.objects.create(name='CSIT User Viewers')
+        group.permissions.add(self._perm('view_all_user_accounts'))
+        manager.groups.add(group)
+        csit_user = self._make_managed_user('csit_group_listed_user', self.csit_lab)
+        mechanical_user = self._make_managed_user('mechanical_group_hidden_user', self.mechanical)
+        self.client.force_authenticate(user=manager)
+
+        resp = self.client.get('/api/users/management/')
+
+        self.assertEqual(resp.status_code, 200)
+        returned_ids = {row['id'] for row in self._rows(resp)}
+        self.assertIn(manager.id, returned_ids)
+        self.assertIn(csit_user.id, returned_ids)
+        self.assertNotIn(mechanical_user.id, returned_ids)
+
+    def test_view_all_user_accounts_detail_rejects_out_of_scope_user_for_non_root_user(self):
+        manager = self._make_user_manager('csit_view_all_detail', self.csit)
+        manager.user_permissions.add(self._perm('view_all_user_accounts'))
+        mechanical_user = self._make_managed_user('mechanical_detail_hidden', self.mechanical)
+        self.client.force_authenticate(user=manager)
+
+        resp = self.client.get(f'/api/users/management/{mechanical_user.id}/')
+
+        self.assertEqual(resp.status_code, 404)
+
+    def test_profile_list_is_location_scoped_for_non_root_user(self):
+        manager = self._make_user_manager('csit_profile_lister', self.csit)
+        manager.user_permissions.add(self._perm('view_all_user_accounts'))
+        csit_user = self._make_managed_user('csit_profile_user', self.csit_lab)
+        mechanical_user = self._make_managed_user('mechanical_profile_hidden', self.mechanical)
+        self.client.force_authenticate(user=manager)
+
+        resp = self.client.get('/api/users/profiles/')
+
+        self.assertEqual(resp.status_code, 200)
+        returned_user_ids = {row['user']['id'] for row in self._rows(resp)}
+        self.assertIn(manager.id, returned_user_ids)
+        self.assertIn(csit_user.id, returned_user_ids)
+        self.assertNotIn(mechanical_user.id, returned_user_ids)
+
+    def test_root_assigned_user_with_view_all_user_accounts_can_list_all_users(self):
+        manager = self._make_user_manager('root_view_all_lister', self.root)
+        manager.user_permissions.add(self._perm('view_all_user_accounts'))
+        csit_user = self._make_managed_user('root_scope_csit_user', self.csit_lab)
+        mechanical_user = self._make_managed_user('root_scope_mechanical_user', self.mechanical)
+        unassigned_user = User.objects.create_user(
+            username='root_scope_unassigned_user',
+            password='pw',
+            email='root_scope_unassigned@example.com',
+        )
+        self.client.force_authenticate(user=manager)
+
+        resp = self.client.get('/api/users/management/')
+
+        self.assertEqual(resp.status_code, 200)
+        returned_ids = {row['id'] for row in self._rows(resp)}
+        self.assertIn(csit_user.id, returned_ids)
+        self.assertIn(mechanical_user.id, returned_ids)
+        self.assertIn(unassigned_user.id, returned_ids)
+
+    def test_root_assigned_user_manager_can_assign_any_location(self):
+        manager = self._make_user_manager('root_manager', self.root)
+        manager.user_permissions.add(self._perm('assign_user_locations'), self._perm('assign_user_roles'))
+        self.client.force_authenticate(user=manager)
+
+        resp = self.client.post(
+            '/api/users/management/',
+            {
+                'username': 'mechanical_from_root',
+                'password': 'pw',
+                'email': 'root_mechanical@example.com',
+                'first_name': 'Root',
+                'last_name': 'Managed',
+                'assigned_locations': [self.mechanical.id],
+                'groups': [self.basic_group.id],
+            },
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 201)
+        created = User.objects.get(username='mechanical_from_root')
+        self.assertTrue(
+            created.profile.assigned_locations.filter(pk=self.mechanical.pk).exists()
+        )
+
+    def test_scoped_user_manager_cannot_create_user_without_location(self):
+        manager = self._make_user_manager('csit_empty_location_creator', self.csit)
+        manager.user_permissions.add(self._perm('assign_user_locations'))
+        self.client.force_authenticate(user=manager)
+
+        resp = self.client.post(
+            '/api/users/management/',
+            {
+                'username': 'no_location_user',
+                'password': 'pw',
+                'email': 'no_location@example.com',
+                'first_name': 'No',
+                'last_name': 'Location',
+            },
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('assigned_locations', resp.data)
+        self.assertFalse(User.objects.filter(username='no_location_user').exists())
+
+    def test_root_assigned_user_manager_cannot_create_user_without_location(self):
+        manager = self._make_user_manager('root_empty_location_creator', self.root)
+        self.client.force_authenticate(user=manager)
+
+        resp = self.client.post(
+            '/api/users/management/',
+            {
+                'username': 'root_no_location_user',
+                'password': 'pw',
+                'email': 'root_no_location@example.com',
+                'first_name': 'Root',
+                'last_name': 'NoLocation',
+            },
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('assigned_locations', resp.data)
+        self.assertFalse(User.objects.filter(username='root_no_location_user').exists())
+
+    def test_create_user_without_assign_roles_cannot_set_groups(self):
+        manager = self._make_user_manager('csit_no_role_assign', self.csit)
+        manager.user_permissions.add(self._perm('assign_user_locations'))
+        group = Group.objects.create(name='Unauthorized Role')
+        self.client.force_authenticate(user=manager)
+
+        resp = self.client.post(
+            '/api/users/management/',
+            {
+                'username': 'unauthorized_role_user',
+                'password': 'pw',
+                'email': 'unauthorized_role@example.com',
+                'first_name': 'Unauthorized',
+                'last_name': 'Role',
+                'assigned_locations': [self.csit_lab.id],
+                'groups': [group.id],
+            },
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('groups', resp.data)
+        self.assertFalse(User.objects.filter(username='unauthorized_role_user').exists())
+
+    def test_create_user_without_assign_locations_cannot_set_locations(self):
+        manager = self._make_user_manager('csit_no_location_assign', self.csit)
+        manager.user_permissions.add(self._perm('assign_user_roles'))
+        group = Group.objects.create(name='Allowed Role')
+        self.client.force_authenticate(user=manager)
+
+        resp = self.client.post(
+            '/api/users/management/',
+            {
+                'username': 'unauthorized_location_user',
+                'password': 'pw',
+                'email': 'unauthorized_location@example.com',
+                'first_name': 'Unauthorized',
+                'last_name': 'Location',
+                'assigned_locations': [self.csit_lab.id],
+                'groups': [group.id],
+            },
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('assigned_locations', resp.data)
+        self.assertFalse(User.objects.filter(username='unauthorized_location_user').exists())
+
+    def test_create_user_with_stock_entry_create_role_requires_assigned_store(self):
+        manager = self._make_user_manager('csit_stock_entry_role_manager', self.csit)
+        manager.user_permissions.add(self._perm('assign_user_locations'))
+        manager.user_permissions.add(self._perm('assign_user_roles'))
+        group = Group.objects.create(name='Stock Entry Manage Role')
+        group.permissions.add(self._inventory_perm('create_stock_entries'))
+        self.client.force_authenticate(user=manager)
+
+        resp = self.client.post(
+            '/api/users/management/',
+            {
+                'username': 'stock_entry_without_store_user',
+                'password': 'pw',
+                'email': 'stock_entry_without_store@example.com',
+                'first_name': 'Stock',
+                'last_name': 'Entry',
+                'assigned_locations': [self.csit.id],
+                'groups': [group.id],
+            },
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('assigned_locations', resp.data)
+        self.assertFalse(User.objects.filter(username='stock_entry_without_store_user').exists())
+
+    def test_create_user_with_stock_entry_create_role_allows_assigned_store(self):
+        manager = self._make_user_manager('csit_stock_entry_store_manager', self.csit)
+        manager.user_permissions.add(self._perm('assign_user_locations'))
+        manager.user_permissions.add(self._perm('assign_user_roles'))
+        group = Group.objects.create(name='Stock Entry Manage With Store')
+        group.permissions.add(self._inventory_perm('create_stock_entries'))
+        self.client.force_authenticate(user=manager)
+
+        resp = self.client.post(
+            '/api/users/management/',
+            {
+                'username': 'stock_entry_with_store_user',
+                'password': 'pw',
+                'email': 'stock_entry_with_store@example.com',
+                'first_name': 'Stock',
+                'last_name': 'Entry',
+                'assigned_locations': [self.csit.id, self.csit_store.id],
+                'groups': [group.id],
+            },
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 201)
+        created = User.objects.get(username='stock_entry_with_store_user')
+        self.assertTrue(created.profile.assigned_locations.filter(pk=self.csit_store.pk).exists())
+
+    def test_non_superuser_cannot_change_own_location_assignments(self):
+        manager = self._make_user_manager('csit_self_location_locked', self.csit)
+        manager.user_permissions.add(self._perm('edit_user_accounts'))
+        self.client.force_authenticate(user=manager)
+
+        resp = self.client.patch(
+            f'/api/users/management/{manager.id}/',
+            {
+                'assigned_locations': [self.csit.id, self.csit_lab.id],
+            },
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('assigned_locations', resp.data)
+        self.assertEqual(
+            set(manager.profile.assigned_locations.values_list('id', flat=True)),
+            {self.csit.id},
+        )
+
+    def test_non_superuser_cannot_change_own_roles(self):
+        manager = self._make_user_manager('csit_self_role_locked', self.csit)
+        manager.user_permissions.add(self._perm('edit_user_accounts'))
+        assigned_group = Group.objects.create(name='Assigned Role')
+        replacement_group = Group.objects.create(name='Replacement Role')
+        manager.groups.add(assigned_group)
+        self.client.force_authenticate(user=manager)
+
+        resp = self.client.patch(
+            f'/api/users/management/{manager.id}/',
+            {
+                'groups': [replacement_group.id],
+            },
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('groups', resp.data)
+        self.assertEqual(set(manager.groups.values_list('id', flat=True)), {assigned_group.id})
+
+    def test_user_manager_can_update_user_password(self):
+        manager = self._make_user_manager('csit_password_manager', self.csit)
+        manager.user_permissions.add(self._perm('edit_user_accounts'))
+        target = self._make_managed_user('csit_password_target', self.csit_lab)
+        self.client.force_authenticate(user=manager)
+
+        resp = self.client.patch(
+            f'/api/users/management/{target.id}/',
+            {
+                'password': 'NewStrongPass123!',
+            },
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 200, resp.data)
+        target.refresh_from_db()
+        self.assertTrue(target.check_password('NewStrongPass123!'))
+        self.assertFalse(target.check_password('pw'))
+
+    def test_non_superuser_user_manager_cannot_create_staff_or_superuser(self):
+        manager = self._make_user_manager('csit_privilege_create_blocked', self.csit)
+        manager.user_permissions.add(self._perm('assign_user_locations'))
+        self.client.force_authenticate(user=manager)
+
+        resp = self.client.post(
+            '/api/users/management/',
+            {
+                'username': 'created_privileged_user',
+                'password': 'pw',
+                'email': 'created_privileged@example.com',
+                'first_name': 'Created',
+                'last_name': 'Privileged',
+                'assigned_locations': [self.csit_lab.id],
+                'is_staff': True,
+                'is_superuser': True,
+            },
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('is_superuser', resp.data)
+        self.assertFalse(User.objects.filter(username='created_privileged_user').exists())
+
+    def test_non_superuser_user_manager_cannot_promote_user_to_superuser(self):
+        manager = self._make_user_manager('csit_privilege_update_blocked', self.csit)
+        manager.user_permissions.add(self._perm('edit_user_accounts'))
+        target = self._make_managed_user('csit_regular_target', self.csit_lab)
+        self.client.force_authenticate(user=manager)
+
+        resp = self.client.patch(
+            f'/api/users/management/{target.id}/',
+            {
+                'is_staff': True,
+                'is_superuser': True,
+            },
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('is_superuser', resp.data)
+        target.refresh_from_db()
+        self.assertFalse(target.is_staff)
+        self.assertFalse(target.is_superuser)
+
+    def test_superuser_can_manage_staff_and_superuser_flags(self):
+        admin = User.objects.create_superuser(username='root_flag_admin', password='pw')
+        target = self._make_managed_user('root_flag_target', self.csit_lab)
+        self.client.force_authenticate(user=admin)
+
+        resp = self.client.patch(
+            f'/api/users/management/{target.id}/',
+            {
+                'is_staff': True,
+                'is_superuser': True,
+            },
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 200, resp.data)
+        target.refresh_from_db()
+        self.assertTrue(target.is_staff)
+        self.assertTrue(target.is_superuser)

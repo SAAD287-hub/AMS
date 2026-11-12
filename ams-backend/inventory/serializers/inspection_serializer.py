@@ -1,0 +1,352 @@
+from rest_framework import serializers
+from django.db import models, transaction
+from django.utils import timezone
+from ..models.inspection_model import InspectionCertificate, InspectionItem, InspectionStage, InspectionDocument
+from ..models.stockentry_model import StockEntry
+from ..models import Item, ItemBatch
+
+ALLOWED_MIME_TYPES = {
+    'application/pdf',
+    'image/jpeg',
+    'image/png',
+    'image/gif',
+    'image/webp',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+}
+
+ALLOWED_EXTENSIONS = {'.pdf', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.docx'}
+
+MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024  # 20 MB
+
+
+def validate_uploaded_file(file):
+    """
+    Validate that an uploaded file is an allowed type (PDF, image, or DOCX)
+    and does not exceed the maximum size.
+    Raises serializers.ValidationError on failure.
+    """
+    import os
+    ext = os.path.splitext(file.name)[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise serializers.ValidationError(
+            f"Unsupported file type '{ext}'. Allowed: PDF, JPEG, PNG, GIF, WEBP, DOCX."
+        )
+    content_type = getattr(file, 'content_type', None)
+    if content_type and content_type not in ALLOWED_MIME_TYPES:
+        raise serializers.ValidationError(
+            f"Unsupported content type '{content_type}'."
+        )
+    if file.size > MAX_FILE_SIZE_BYTES:
+        raise serializers.ValidationError(
+            f"File '{file.name}' exceeds the 20 MB size limit."
+        )
+
+
+class InspectionDocumentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = InspectionDocument
+        fields = ('id', 'file', 'label', 'uploaded_at')
+
+    def validate_file(self, value):
+        validate_uploaded_file(value)
+        return value
+
+class InspectionItemSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(required=False)
+    item_name = serializers.CharField(source='item.name', read_only=True)
+    item_code = serializers.CharField(source='item.code', read_only=True)
+    item_category_type = serializers.CharField(source='item.category.get_category_type', read_only=True)
+    item_tracking_type = serializers.CharField(source='item.category.get_tracking_type', read_only=True)
+    central_register_name = serializers.CharField(source='central_register.register_number', read_only=True)
+    stock_register_name = serializers.CharField(source='stock_register.register_number', read_only=True)
+    depreciation_asset_class_name = serializers.CharField(source='depreciation_asset_class.display_name', read_only=True, allow_null=True)
+
+    class Meta:
+        model = InspectionItem
+        fields = (
+            'id', 'inspection_certificate', 'item', 'item_name', 'item_code',
+            'item_category_type', 'item_tracking_type',
+            'item_description', 'item_specifications',
+            'tendered_quantity', 'accepted_quantity', 'rejected_quantity',
+            'unit_price', 'remarks',
+            'stock_register', 'stock_register_name', 'stock_register_no', 
+            'stock_register_page_no', 'stock_entry_date',
+            'central_register', 'central_register_name', 'central_register_no', 
+            'central_register_page_no', 'batch_number', 'manufactured_date', 'expiry_date',
+            'depreciation_asset_class', 'depreciation_asset_class_name',
+            'capitalization_cost', 'capitalization_date'
+        )
+        read_only_fields = ('inspection_certificate',)
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        item = attrs.get('item') or getattr(self.instance, 'item', None)
+        has_depreciation_profile = any(
+            attrs.get(field) not in (None, '')
+            for field in ('depreciation_asset_class', 'capitalization_cost', 'capitalization_date')
+        )
+        if has_depreciation_profile:
+            if not item:
+                raise serializers.ValidationError({
+                    'item': 'A catalog item is required before fixed asset capitalization details can be set.'
+                })
+            if item.category.get_category_type() != 'FIXED_ASSET':
+                raise serializers.ValidationError({
+                    'depreciation_asset_class': 'Depreciation capitalization details are only allowed for fixed assets.'
+                })
+        return attrs
+
+class InspectionRelatedStockEntrySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StockEntry
+        fields = ('id', 'entry_number', 'entry_type', 'status', 'entry_date')
+
+
+class InspectionCertificateListSerializer(serializers.ModelSerializer):
+    department_name = serializers.CharField(source='department.name', read_only=True)
+    department_hierarchy_level = serializers.IntegerField(source='department.hierarchy_level', read_only=True)
+    initiated_by_name = serializers.CharField(source='initiated_by.username', read_only=True)
+    stock_filled_by_name = serializers.CharField(source='stock_filled_by.username', read_only=True, allow_null=True)
+    central_store_filled_by_name = serializers.CharField(source='central_store_filled_by.username', read_only=True, allow_null=True)
+    finance_reviewed_by_name = serializers.CharField(source='finance_reviewed_by.username', read_only=True, allow_null=True)
+    revision_requested_by_name = serializers.CharField(source='revision_requested_by.username', read_only=True, allow_null=True)
+    rejected_by_name = serializers.CharField(source='rejected_by.username', read_only=True, allow_null=True)
+
+    class Meta:
+        model = InspectionCertificate
+        fields = (
+            'id', 'date', 'contract_no', 'contract_date',
+            'contractor_name', 'contractor_address',
+            'indenter', 'indent_no', 'department', 'department_name',
+            'department_hierarchy_level',
+            'date_of_delivery', 'delivery_type', 'remarks',
+            'inspected_by', 'date_of_inspection',
+            'consignee_name', 'consignee_designation',
+            'stage', 'status',
+            'initiated_by', 'initiated_by_name', 'initiated_at',
+            'stock_filled_by', 'stock_filled_by_name', 'stock_filled_at',
+            'central_store_filled_by', 'central_store_filled_by_name', 'central_store_filled_at',
+            'finance_reviewed_at', 'finance_reviewed_by', 'finance_reviewed_by_name', 'finance_check_date',
+            'revision_requested_by', 'revision_requested_by_name', 'revision_requested_at', 'revision_requested_reason', 'revision_requested_from_stage',
+            'rejected_by', 'rejected_by_name', 'rejected_at', 'rejection_reason', 'rejection_stage',
+            'created_at', 'updated_at'
+        )
+
+
+class InspectionCertificateSerializer(serializers.ModelSerializer):
+    items = InspectionItemSerializer(many=True)
+    documents = InspectionDocumentSerializer(many=True, read_only=True)
+    stock_entries = InspectionRelatedStockEntrySerializer(many=True, read_only=True)
+    department_name = serializers.CharField(source='department.name', read_only=True)
+    department_hierarchy_level = serializers.IntegerField(source='department.hierarchy_level', read_only=True)
+    initiated_by_name = serializers.CharField(source='initiated_by.username', read_only=True)
+    stock_filled_by_name = serializers.CharField(source='stock_filled_by.username', read_only=True, allow_null=True)
+    central_store_filled_by_name = serializers.CharField(source='central_store_filled_by.username', read_only=True, allow_null=True)
+    finance_reviewed_by_name = serializers.CharField(source='finance_reviewed_by.username', read_only=True, allow_null=True)
+    revision_requested_by_name = serializers.CharField(source='revision_requested_by.username', read_only=True, allow_null=True)
+    rejected_by_name = serializers.CharField(source='rejected_by.username', read_only=True, allow_null=True)
+    is_initiated = serializers.BooleanField(write_only=True, required=False, default=False)
+    
+    class Meta:
+        model = InspectionCertificate
+        fields = (
+            'id', 'date', 'contract_no', 'contract_date',
+            'contractor_name', 'contractor_address',
+            'indenter', 'indent_no', 'department', 'department_name',
+            'department_hierarchy_level',
+            'date_of_delivery', 'delivery_type', 'remarks',
+            'inspected_by', 'date_of_inspection',
+            'consignee_name', 'consignee_designation',
+            'stage', 'status', 'items', 'documents', 'stock_entries', 'is_initiated',
+            'initiated_by', 'initiated_by_name', 'initiated_at',
+            'stock_filled_by', 'stock_filled_by_name', 'stock_filled_at',
+            'central_store_filled_by', 'central_store_filled_by_name', 'central_store_filled_at',
+            'finance_reviewed_at', 'finance_reviewed_by', 'finance_reviewed_by_name', 'finance_check_date',
+            'revision_requested_by', 'revision_requested_by_name', 'revision_requested_at', 'revision_requested_reason', 'revision_requested_from_stage',
+            'rejected_by', 'rejected_by_name', 'rejected_at', 'rejection_reason', 'rejection_stage',
+            'created_at', 'updated_at'
+        )
+        read_only_fields = (
+            'stage', 'status', 'initiated_by', 'initiated_at',
+            'stock_filled_by', 'stock_filled_at',
+            'central_store_filled_by', 'central_store_filled_at',
+            'finance_reviewed_at', 'finance_reviewed_by',
+            'revision_requested_by', 'revision_requested_at', 'revision_requested_reason', 'revision_requested_from_stage',
+            'rejected_by', 'rejected_at', 'rejection_reason', 'rejection_stage',
+            'created_at', 'updated_at'
+        )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get('request')
+        if request is None:
+            return
+        if not request.user or not request.user.is_authenticated:
+            self.fields['department'].queryset = self.fields['department'].queryset.none()
+            return
+        if request.user.is_superuser:
+            return
+        if hasattr(request.user, 'profile'):
+            queryset = request.user.profile.get_creatable_inspection_department_locations()
+            if self.instance and getattr(self.instance, 'department_id', None):
+                queryset = queryset.model.objects.filter(
+                    models.Q(id__in=queryset.values_list('id', flat=True))
+                    | models.Q(id=self.instance.department_id)
+                ).distinct()
+            self.fields['department'].queryset = queryset
+        else:
+            self.fields['department'].queryset = self.fields['department'].queryset.none()
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        current_inspection_id = self.instance.id if self.instance else None
+        for item_data in attrs.get('items', []) or []:
+            catalog_item = item_data.get('item')
+            if not catalog_item or not getattr(catalog_item, 'is_provisional', False):
+                continue
+            if catalog_item.provisional_inspection_id != current_inspection_id:
+                raise serializers.ValidationError({
+                    'items': (
+                        f"Item '{catalog_item.name}' is reserved for another inspection workflow and cannot be linked here."
+                    )
+                })
+        return attrs
+
+    def to_internal_value(self, data):
+        # When using FormData (multipart/form-data), nested lists/dicts like 'items'
+        # are often sent as JSON strings. We need to parse them before validation.
+        if isinstance(data, dict) or hasattr(data, 'getlist'):
+            if hasattr(data, 'lists'):
+                # QueryDict.copy() deep-copies values and crashes on uploaded files.
+                # Validation only needs form fields; files are handled from request.FILES.
+                data = {
+                    key: values if len(values) > 1 else values[0]
+                    for key, values in data.lists()
+                    if not key.startswith('documents[') and key != 'file'
+                }
+            else:
+                data = data.copy()
+            
+            if 'items' in data and isinstance(data['items'], str):
+                try:
+                    import json
+                    data['items'] = json.loads(data['items'])
+                except (ValueError, TypeError):
+                    pass
+        
+        return super().to_internal_value(data)
+
+    @staticmethod
+    def _initial_stage_for_department(department):
+        if department and department.hierarchy_level == 0:
+            return InspectionStage.CENTRAL_REGISTER
+        return InspectionStage.STOCK_DETAILS
+
+    def create(self, validated_data):
+        items_data = validated_data.pop('items', [])
+        is_initiated = validated_data.pop('is_initiated', False)
+        
+        request = self.context.get('request')
+        if is_initiated and request and request.user and not request.user.has_perm('inventory.initiate_inspection'):
+            raise serializers.ValidationError({
+                'is_initiated': 'You do not have permission to initiate inspections.'
+            })
+        if request and request.user:
+            validated_data['initiated_by'] = request.user
+        
+        if is_initiated:
+            validated_data['status'] = 'IN_PROGRESS'
+            validated_data['initiated_at'] = timezone.now()
+            validated_data['stage'] = self._initial_stage_for_department(validated_data.get('department'))
+        else:
+            validated_data['status'] = 'DRAFT'
+            validated_data['stage'] = InspectionStage.DRAFT
+
+        with transaction.atomic():
+            certificate = InspectionCertificate.objects.create(**validated_data)
+            for item_data in items_data:
+                InspectionItem.objects.create(inspection_certificate=certificate, **item_data)
+            
+            # Handle document uploads from request.FILES
+            if request and request.FILES:
+                for file_key in request.FILES:
+                    if file_key.startswith('documents[') or file_key == 'file':
+                        file = request.FILES[file_key]
+                        validate_uploaded_file(file)
+                        InspectionDocument.objects.create(
+                            inspection_certificate=certificate,
+                            file=file,
+                            label=file.name
+                        )
+        
+        return certificate
+
+    def update(self, instance, validated_data):
+        items_data = validated_data.pop('items', None)
+        is_initiated = validated_data.pop('is_initiated', False)
+        
+        request = self.context.get('request')
+        if is_initiated and instance.stage == InspectionStage.DRAFT:
+            if request and request.user and not request.user.has_perm('inventory.initiate_inspection'):
+                raise serializers.ValidationError({
+                    'is_initiated': 'You do not have permission to initiate inspections.'
+                })
+        
+        if is_initiated and instance.stage == InspectionStage.DRAFT:
+             instance.status = 'IN_PROGRESS'
+             instance.initiated_at = timezone.now()
+             if request and request.user:
+                 instance.initiated_by = request.user
+             
+             instance.stage = self._initial_stage_for_department(
+                 validated_data.get('department', instance.department)
+             )
+
+        with transaction.atomic():
+            # Update main fields
+            for attr, value in validated_data.items():
+                setattr(instance, attr, value)
+            instance.save()
+            
+            # Handle document uploads
+            if request and request.FILES:
+                for file_key in request.FILES:
+                    if file_key.startswith('documents[') or file_key == 'file':
+                        file = request.FILES[file_key]
+                        validate_uploaded_file(file)
+                        InspectionDocument.objects.create(
+                            inspection_certificate=instance,
+                            file=file,
+                            label=file.name
+                        )
+
+            # Update nested items if provided
+            if items_data is not None:
+                if instance.stage in [
+                    InspectionStage.DRAFT,
+                    InspectionStage.STOCK_DETAILS,
+                    InspectionStage.CENTRAL_REGISTER,
+                    InspectionStage.FINANCE_REVIEW,
+                ]:
+                    existing_items = {item.id: item for item in instance.items.all()}
+                    
+                    new_item_ids = []
+                    for item_data in items_data:
+                        item_id = item_data.get('id')
+                        if item_id and item_id in existing_items:
+                            # Update existing
+                            item_instance = existing_items[item_id]
+                            for attr, value in item_data.items():
+                                setattr(item_instance, attr, value)
+                            item_instance.save()
+                            new_item_ids.append(item_id)
+                        elif instance.stage != InspectionStage.FINANCE_REVIEW:
+                            # Create new
+                            new_item = InspectionItem.objects.create(inspection_certificate=instance, **item_data)
+                            new_item_ids.append(new_item.id)
+                    
+                    # Delete removed
+                    if instance.stage != InspectionStage.FINANCE_REVIEW:
+                        instance.items.exclude(id__in=new_item_ids).delete()
+        
+        return instance

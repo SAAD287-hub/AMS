@@ -1,0 +1,382 @@
+from rest_framework import viewsets, permissions
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from django.db.models import Sum
+from ..models.stock_record_model import StockRecord
+from ..models.allocation_model import StockAllocation, AllocationStatus
+from ..models.location_model import Location
+from ..serializers.distribution_serializer import StockRecordSerializer
+from ..permissions import ItemReadPermission
+
+from .utils import (
+    ScopedViewSetMixin,
+    get_item_scope_locations,
+    get_item_scope_options,
+    get_scope_tokens_from_request,
+)
+
+
+def build_hierarchical_distribution(user, item_id, batch_id=None, scope_tokens=None):
+    if not hasattr(user, 'profile'):
+        return []
+
+    accessible_locs = get_item_scope_locations(user, scope_tokens)
+
+    records = StockRecord.objects.filter(
+        item_id=item_id,
+        location__in=accessible_locs,
+    ).select_related(
+        'location',
+        'location__parent_location',
+        'batch',
+    ).prefetch_related(
+        'location__tags',
+    )
+    allocations = StockAllocation.objects.filter(
+        item_id=item_id,
+        status=AllocationStatus.ALLOCATED,
+        source_location__in=accessible_locs,
+    ).select_related(
+        'source_location',
+        'source_location__parent_location',
+        'allocated_to_person',
+        'allocated_to_location',
+        'batch',
+    )
+
+    include_batch = batch_id is not None
+    if include_batch:
+        records = records.filter(batch_id=batch_id)
+        allocations = allocations.filter(batch_id=batch_id)
+
+    all_location_ids = set()
+    for record in records:
+        all_location_ids.add(record.location_id)
+        if record.location.parent_location_id:
+            all_location_ids.add(record.location.parent_location_id)
+
+    for alloc in allocations:
+        all_location_ids.add(alloc.source_location_id)
+        if alloc.source_location.parent_location_id:
+            all_location_ids.add(alloc.source_location.parent_location_id)
+
+    location_map = {loc.id: loc for loc in Location.objects.filter(id__in=all_location_ids).prefetch_related('tags')}
+
+    def serialize_tags(location):
+        return [
+            {
+                "id": tag.id,
+                "name": tag.name,
+                "code": tag.code,
+                "category": tag.category,
+                "categoryDisplay": tag.get_category_display(),
+                "label": f"{tag.get_category_display()}: {tag.name}",
+                "color": tag.color,
+                "isActive": tag.is_active,
+            }
+            for tag in location.tags.all()
+        ]
+
+    def get_standalone(location):
+        if not location:
+            return None
+        current = location
+        while current.parent_location_id:
+            parent = location_map.get(current.parent_location_id)
+            if not parent:
+                break
+            if parent.is_standalone:
+                return parent
+            current = parent
+        return location if location.is_standalone else None
+
+    hierarchy = {}
+
+    def get_or_create_unit(unit_loc):
+        if unit_loc.id not in hierarchy:
+            hierarchy[unit_loc.id] = {
+                "id": unit_loc.id,
+                "name": unit_loc.name,
+                "code": unit_loc.code,
+                "tags": serialize_tags(unit_loc),
+                "totalQuantity": 0,
+                "availableQuantity": 0,
+                "inTransitQuantity": 0,
+                "allocatedQuantity": 0,
+                "stores": [],
+                "allocations": [],
+            }
+        return hierarchy[unit_loc.id]
+
+    def empty_batch_group(unit, store_group, batch):
+        return {
+            "unit": unit,
+            "storeGroup": store_group,
+            "batchNumber": batch.batch_number if batch else None,
+            "batchId": batch.id if batch else None,
+            "quantity": 0,
+            "availableQuantity": 0,
+            "inTransitQuantity": 0,
+            "allocatedTotal": 0,
+            "lastUpdated": None,
+            "allocations": [],
+        }
+
+    def serialize_allocation_group(grp):
+        return {
+            "id": grp["id"],
+            "targetName": grp["targetName"],
+            "targetType": grp["targetType"],
+            "targetLocationId": grp["targetLocationId"],
+            "sourceStoreId": grp["sourceStoreId"],
+            "sourceStoreName": grp["sourceStoreName"],
+            "batchNumber": grp["batchNumber"],
+            "batchId": grp["batchId"],
+            "quantity": grp["quantity"],
+            "allocatedAt": grp["allocatedAt"],
+            "stockEntryIds": grp["stockEntryIds"],
+            "locationId": grp["targetLocationId"],
+        }
+
+    store_groups = {}
+    batch_groups = {}
+    for record in records:
+        standalone = get_standalone(record.location)
+        if not standalone:
+            continue
+
+        unit = get_or_create_unit(standalone)
+        unit["totalQuantity"] += record.quantity
+        unit["availableQuantity"] += record.available_quantity
+        unit["inTransitQuantity"] += record.in_transit_quantity
+        unit["allocatedQuantity"] += record.allocated_quantity
+
+        group_key = (standalone.id, record.location.id)
+        if group_key not in store_groups:
+            store_groups[group_key] = {
+                "unit": unit,
+                "id": record.location.id,
+                "locationId": record.location.id,
+                "locationName": record.location.name,
+                "isStore": record.location.is_store,
+                "batchNumber": record.batch.batch_number if include_batch and record.batch else None,
+                "batchId": record.batch.id if include_batch and record.batch else None,
+                "quantity": 0,
+                "availableQuantity": 0,
+                "inTransitQuantity": 0,
+                "allocatedTotal": 0,
+                "lastUpdated": record.last_updated,
+            }
+
+        group = store_groups[group_key]
+        group["quantity"] += record.quantity
+        group["availableQuantity"] += record.available_quantity
+        group["inTransitQuantity"] += record.in_transit_quantity
+        group["allocatedTotal"] += record.allocated_quantity
+        if record.last_updated and (not group["lastUpdated"] or record.last_updated > group["lastUpdated"]):
+            group["lastUpdated"] = record.last_updated
+
+        batch_key = (standalone.id, record.location.id, record.batch_id)
+        if batch_key not in batch_groups:
+            batch_groups[batch_key] = empty_batch_group(unit, group, record.batch)
+
+        batch_group = batch_groups[batch_key]
+        batch_group["quantity"] += record.quantity
+        batch_group["availableQuantity"] += record.available_quantity
+        batch_group["inTransitQuantity"] += record.in_transit_quantity
+        batch_group["allocatedTotal"] += record.allocated_quantity
+        if record.last_updated and (not batch_group["lastUpdated"] or record.last_updated > batch_group["lastUpdated"]):
+            batch_group["lastUpdated"] = record.last_updated
+
+    allocations_grouped = {}
+    for alloc in allocations:
+        standalone = get_standalone(alloc.source_location)
+        if not standalone:
+            continue
+
+        target_id = alloc.allocated_to_person.id if alloc.allocated_to_person else alloc.allocated_to_location.id
+        target_name = alloc.allocated_to_person.name if alloc.allocated_to_person else alloc.allocated_to_location.name
+        target_type = "PERSON" if alloc.allocated_to_person else "LOCATION"
+        source_store_id = alloc.source_location.id
+        source_store_name = alloc.source_location.name
+
+        group_key = (standalone.id, target_type, target_id, source_store_id, alloc.batch_id)
+        if group_key not in allocations_grouped:
+            allocations_grouped[group_key] = {
+                "standalone": standalone,
+                "id": alloc.id,
+                "targetName": target_name,
+                "targetType": target_type,
+                "targetLocationId": alloc.allocated_to_location.id if alloc.allocated_to_location else None,
+                "sourceStoreId": source_store_id,
+                "sourceStoreName": source_store_name,
+                "batchNumber": alloc.batch.batch_number if alloc.batch else None,
+                "batchId": alloc.batch.id if alloc.batch else None,
+                "quantity": 0,
+                "allocatedAt": alloc.allocated_at,
+                "stockEntryIds": [],
+            }
+
+        grp = allocations_grouped[group_key]
+        grp["quantity"] += alloc.quantity
+        if alloc.allocated_at > grp["allocatedAt"]:
+            grp["allocatedAt"] = alloc.allocated_at
+        if alloc.stock_entry_id and alloc.stock_entry_id not in grp["stockEntryIds"]:
+            grp["stockEntryIds"].append(alloc.stock_entry_id)
+
+    for grp in allocations_grouped.values():
+        store_key = (grp["standalone"].id, grp["sourceStoreId"])
+        store_group = store_groups.get(store_key)
+        if store_group:
+            batch_key = (grp["standalone"].id, grp["sourceStoreId"], grp["batchId"])
+            if batch_key not in batch_groups:
+                batch_groups[batch_key] = empty_batch_group(
+                    store_group["unit"],
+                    store_group,
+                    None,
+                )
+                batch_groups[batch_key]["batchNumber"] = grp["batchNumber"]
+                batch_groups[batch_key]["batchId"] = grp["batchId"]
+            batch_groups[batch_key]["allocations"].append(serialize_allocation_group(grp))
+
+    batches_by_store = {}
+    for batch in batch_groups.values():
+        store = batch["storeGroup"]
+        store_key = (batch["unit"]["id"], store["locationId"])
+        batches_by_store.setdefault(store_key, []).append({
+            "batchNumber": batch["batchNumber"],
+            "batchId": batch["batchId"],
+            "quantity": batch["quantity"],
+            "availableQuantity": batch["availableQuantity"],
+            "inTransitQuantity": batch["inTransitQuantity"],
+            "allocatedTotal": batch["allocatedTotal"],
+            "lastUpdated": batch["lastUpdated"],
+            "allocations": batch["allocations"],
+        })
+
+    for batches in batches_by_store.values():
+        batches.sort(key=lambda row: (row["batchNumber"] is None, row["batchNumber"] or "", row["batchId"] or 0))
+
+    for group in store_groups.values():
+        store_key = (group["unit"]["id"], group["locationId"])
+        group["unit"]["stores"].append({
+            "id": group["id"],
+            "locationId": group["locationId"],
+            "locationName": group["locationName"],
+            "isStore": group["isStore"],
+            "batchNumber": group["batchNumber"],
+            "batchId": group["batchId"],
+            "quantity": group["quantity"],
+            "availableQuantity": group["availableQuantity"],
+            "inTransitQuantity": group["inTransitQuantity"],
+            "allocatedTotal": group["allocatedTotal"],
+            "lastUpdated": group["lastUpdated"],
+            "batches": batches_by_store.get(store_key, []),
+        })
+
+    for grp in allocations_grouped.values():
+        unit = get_or_create_unit(grp["standalone"])
+        unit["allocations"].append(serialize_allocation_group(grp))
+
+    return list(hierarchy.values())
+
+class StockRecordViewSet(ScopedViewSetMixin, viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet for viewing item distribution (stock records).
+    Optimized with select_related to avoid N+1 queries.
+    """
+    serializer_class = StockRecordSerializer
+    permission_classes = [permissions.IsAuthenticated, ItemReadPermission]
+
+    def get_queryset(self):
+        # Add select_related to avoid N+1 queries
+        queryset = StockRecord.objects.select_related(
+            'location',
+            'location__parent_location',
+            'item',
+            'item__category',
+            'item__category__parent_category',
+            'batch'
+        ).prefetch_related(
+            'location__tags',
+        )
+        
+        item_id = self.request.query_params.get('item')
+        if item_id:
+            queryset = queryset.filter(item_id=item_id)
+            
+        location_id = self.request.query_params.get('location')
+        if location_id:
+            queryset = queryset.filter(location_id=location_id)
+            
+        user = self.request.user
+        return queryset.filter(
+            location__in=get_item_scope_locations(user, get_scope_tokens_from_request(self.request))
+        ).distinct().order_by('id')
+
+    @action(detail=False, methods=['get'])
+    def hierarchical(self, request):
+        item_id = request.query_params.get('item')
+        if not item_id:
+            return Response({"error": "Item ID is required"}, status=400)
+        batch_id = request.query_params.get('batch')
+        return Response(
+            build_hierarchical_distribution(
+                request.user,
+                item_id,
+                batch_id=batch_id,
+                scope_tokens=get_scope_tokens_from_request(request),
+            )
+        )
+
+    @action(detail=False, methods=['get'], url_path='scope-options')
+    def scope_options(self, request):
+        return Response(get_item_scope_options(request.user))
+
+    @action(detail=False, methods=['get'], url_path='tag-options')
+    def tag_options(self, request):
+        """
+        Location tag choices for reports.
+
+        Tags assigned to a standalone are exposed as effective filter tags for
+        its child stock locations, without mutating or displaying them as direct
+        child-location assignments elsewhere in the system.
+        """
+        accessible_locations = get_item_scope_locations(
+            request.user,
+            get_scope_tokens_from_request(request),
+        ).select_related('parent_location').prefetch_related('tags')
+
+        tags_by_id = {}
+        standalone_ids = set()
+        for location in accessible_locations:
+            for tag in location.tags.all():
+                if tag.is_active:
+                    tags_by_id[tag.id] = tag
+            standalone = location.get_parent_standalone()
+            if standalone:
+                standalone_ids.add(standalone.id)
+
+        if standalone_ids:
+            for standalone in Location.objects.filter(
+                id__in=standalone_ids,
+                is_active=True,
+            ).prefetch_related('tags'):
+                for tag in standalone.tags.all():
+                    if tag.is_active:
+                        tags_by_id[tag.id] = tag
+
+        options = [
+            {
+                'id': tag.id,
+                'name': tag.name,
+                'code': tag.code,
+                'category': tag.category,
+                'category_display': tag.get_category_display(),
+                'label': f"{tag.get_category_display()}: {tag.name}",
+                'color': tag.color,
+                'is_active': tag.is_active,
+            }
+            for tag in sorted(tags_by_id.values(), key=lambda item: (item.get_category_display(), item.name))
+        ]
+        return Response(options)

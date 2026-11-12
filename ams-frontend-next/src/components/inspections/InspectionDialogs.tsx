@@ -1,0 +1,1350 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { apiFetch, apiRequest, type Page } from "@/lib/api";
+import { useCopilotForm, type CopilotFormField } from "@/hooks/useCopilotForm";
+import { searchCentralRegisterItemOptions } from "@/lib/inspectionCopilotForm";
+import { ensureValueInOptions, normalizeCopilotSubmitError } from "@/lib/copilotFormRuntime";
+import { ThemedSelect } from "@/components/ThemedSelect";
+import { useAuth } from "@/contexts/AuthContext";
+import {
+  API_BASE,
+  formatInspectionDate,
+  getCreateInspectionSubmitLabel,
+  type InspectionItemOption,
+  type InspectionItemRecord,
+  type InspectionLocationOption,
+  type InspectionRecord,
+  type InspectionStage,
+  INSPECTION_STAGE_PILL,
+  getInspectionStageDisplayLabel,
+  type InspectionStockRegisterOption,
+} from "@/lib/inspectionUi";
+import {
+  getAutoSelectedInspectionLocation,
+  getDefaultFinanceCheckDate,
+  getInspectionCentralStoreRegisters,
+  getInspectionMainStoreRegisters,
+  getInspectionQuantityError,
+  getInspectionQuantityUpdateError,
+  getScopedInspectionLocations,
+} from "@/lib/inspectionStageForms";
+import {
+  applyInspectionItemCopilotPatches,
+  buildInspectionCertificateItemCopilotFields,
+  buildInspectionItemArrayCopilotFields,
+  parseInspectionItemFieldPath,
+} from "@/lib/inspectionCopilotForm";
+import { Button } from "@/components/ui/button";
+
+
+export const InspectionIcon = ({ d, size = 16 }: { d: React.ReactNode | string; size?: number }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    style={{ flexShrink: 0 }}
+    aria-hidden="true"
+    focusable="false"
+  >
+    {typeof d === "string" ? <path d={d} /> : d}
+  </svg>
+);
+
+export function InspectionStagePill({ stage, status }: { stage: InspectionStage; status?: string | null }) {
+  return (
+    <span className={`pill ${INSPECTION_STAGE_PILL[stage] ?? "pill-neutral"}`}>
+      <span className="status-dot" />
+      {getInspectionStageDisplayLabel({ stage, status })}
+    </span>
+  );
+}
+
+function Field({
+  label,
+  required,
+  error,
+  hint,
+  children,
+  span,
+}: {
+  label: string;
+  required?: boolean;
+  error?: string;
+  hint?: string;
+  children: React.ReactNode;
+  span?: number;
+}) {
+  return (
+    <div className={"field" + (error ? " has-error" : "")} style={span ? { gridColumn: `span ${span}` } : undefined}>
+      <div className="field-label">
+        {label}
+        {required && <span className="field-req">*</span>}
+      </div>
+      {children}
+      {error ? <div className="field-error">{error}</div> : hint ? <div className="field-hint">{hint}</div> : null}
+    </div>
+  );
+}
+
+function Section({ n, title, sub, children }: { n: number; title: string; sub?: string; children: React.ReactNode }) {
+  return (
+    <section className="form-section">
+      <header className="form-section-head">
+        <div className="form-section-n mono">{String(n).padStart(2, "0")}</div>
+        <div>
+          <h3>{title}</h3>
+          {sub && <div className="form-section-sub">{sub}</div>}
+        </div>
+      </header>
+      <div className="form-section-body">{children}</div>
+    </section>
+  );
+}
+
+function blankItem(): InspectionItemRecord {
+  return {
+    item: null,
+    item_description: "",
+    item_specifications: "",
+    tendered_quantity: 1,
+    accepted_quantity: 0,
+    rejected_quantity: 0,
+    unit_price: "0.00",
+    remarks: "",
+    stock_register: null,
+    stock_register_no: "",
+    stock_register_page_no: "",
+    stock_entry_date: "",
+    central_register: null,
+    central_register_no: "",
+    central_register_page_no: "",
+    batch_number: "",
+    manufactured_date: "",
+    expiry_date: "",
+    depreciation_asset_class: null,
+    capitalization_cost: "",
+    capitalization_date: "",
+  };
+}
+
+export function InspectionModal({
+  open,
+  mode,
+  inspection,
+  hasStage,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  mode: "create" | "edit";
+  inspection: InspectionRecord | null;
+  hasStage: (stage: string) => boolean;
+  onClose: () => void;
+  onSave: () => void | Promise<void>;
+}) {
+  const { user } = useAuth();
+  const [date, setDate] = useState("");
+  const [contractNo, setContractNo] = useState("");
+  const [contractDate, setContractDate] = useState("");
+  const [contractorName, setContractorName] = useState("");
+  const [contractorAddress, setContractorAddress] = useState("");
+  const [indenter, setIndenter] = useState("");
+  const [indentNo, setIndentNo] = useState("");
+  const [department, setDepartment] = useState<number | "">("");
+  const [dateOfDelivery, setDateOfDelivery] = useState("");
+  const [deliveryType, setDeliveryType] = useState<"PART" | "FULL">("FULL");
+  const [remarks, setRemarks] = useState("");
+  const [inspectedBy, setInspectedBy] = useState("");
+  const [dateOfInspection, setDateOfInspection] = useState("");
+  const [financeCheckDate, setFinanceCheckDate] = useState("");
+  const [consigneeName, setConsigneeName] = useState("");
+  const [consigneeDesignation, setConsigneeDesignation] = useState("");
+  const [items, setItems] = useState<InspectionItemRecord[]>([blankItem()]);
+  const [files, setFiles] = useState<File[]>([]);
+
+  const [locations, setLocations] = useState<InspectionLocationOption[]>([]);
+  const [itemOptions, setItemOptions] = useState<InspectionItemOption[]>([]);
+  const [stockRegisters, setStockRegisters] = useState<InspectionStockRegisterOption[]>([]);
+  const [refsLoading, setRefsLoading] = useState(true);
+
+  const [touched, setTouched] = useState(false);
+  const [quantityInputErrors, setQuantityInputErrors] = useState<Record<number, string>>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [previewFile, setPreviewFile] = useState<{ url: string; type: "image" | "pdf" | "other"; name: string } | null>(null);
+
+  const canCreateForAnyStandalone = Boolean(user?.is_superuser);
+  const locationScopeHint = canCreateForAnyStandalone
+    ? "Superusers can create certificates for any standalone location."
+    : locations.length === 1
+      ? "Your assigned standalone location was selected automatically."
+      : "Only your assigned standalone locations are available.";
+
+  const openLocalPreview = (file: File) => {
+    const isImage = file.type.startsWith("image/");
+    const isPdf = file.type === "application/pdf";
+    if (!isImage && !isPdf) return;
+    const url = URL.createObjectURL(file);
+    if (isPdf) {
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      return;
+    }
+    setPreviewFile({ url, type: "image", name: file.name });
+  };
+
+  const closePreview = () => {
+    if (previewFile) URL.revokeObjectURL(previewFile.url);
+    setPreviewFile(null);
+  };
+
+  const stage = inspection?.stage ?? "DRAFT";
+  const copilotFormId = `inspection-${mode}`;
+  const copilotFormTitle =
+    mode === "create" ? "New Inspection Certificate" : "Inspection Certificate";
+  const isEditDraft = mode === "edit" && stage === "DRAFT";
+  const isEditStage2 = mode === "edit" && stage === "STOCK_DETAILS";
+  const isEditStage3 = mode === "edit" && stage === "CENTRAL_REGISTER";
+  const isEditStage4 = mode === "edit" && stage === "FINANCE_REVIEW";
+  const isReadOnly = mode === "edit" && (stage === "COMPLETED" || stage === "REJECTED");
+
+  const canEditBasic = mode === "create" || isEditDraft;
+  const canEditItems = mode === "create" || isEditDraft;
+  const canEditStage2 = isEditStage2 && hasStage("fill_stock_details");
+  const canEditStage3 = isEditStage3 && hasStage("fill_central_register");
+  const canEditStage4 = isEditStage4 && hasStage("review_finance");
+  const showStockColumns = mode === "edit" && ["STOCK_DETAILS", "CENTRAL_REGISTER", "FINANCE_REVIEW", "COMPLETED", "REJECTED"].includes(stage);
+  const showCentralColumns = mode === "edit" && ["CENTRAL_REGISTER", "FINANCE_REVIEW", "COMPLETED", "REJECTED"].includes(stage);
+  const showFinanceSection = mode === "edit" && (isEditStage4 || stage === "COMPLETED" || stage === "REJECTED" || Boolean(inspection?.finance_check_date));
+  const documentsSectionNumber = showFinanceSection ? 5 : 4;
+  const auditSectionNumber = showFinanceSection ? 6 : 5;
+  const selectedDepartmentLevel = mode === "create"
+    ? locations.find(location => location.id === department)?.hierarchy_level ?? null
+    : inspection?.department_hierarchy_level ?? null;
+  const selectedInspectionLocation = locations.find(location => String(location.id) === String(department || inspection?.department || ""));
+  const departmentRegisterOptions = getInspectionMainStoreRegisters(stockRegisters, selectedInspectionLocation);
+  const centralRegisterOptions = getInspectionCentralStoreRegisters(stockRegisters, selectedInspectionLocation);
+  const singleCreateDepartment = mode === "create" && locations.length === 1 ? locations[0] : null;
+
+  useEffect(() => {
+    if (!open) return;
+    if (mode === "edit" && inspection) {
+      setDate(inspection.date ?? "");
+      setContractNo(inspection.contract_no ?? "");
+      setContractDate(inspection.contract_date ?? "");
+      setContractorName(inspection.contractor_name ?? "");
+      setContractorAddress(inspection.contractor_address ?? "");
+      setIndenter(inspection.indenter ?? "");
+      setIndentNo(inspection.indent_no ?? "");
+      setDepartment(inspection.department ?? "");
+      setDateOfDelivery(inspection.date_of_delivery ?? "");
+      setDeliveryType(inspection.delivery_type ?? "FULL");
+      setRemarks(inspection.remarks ?? "");
+      setInspectedBy(inspection.inspected_by ?? "");
+      setDateOfInspection(inspection.date_of_inspection ?? "");
+      setFinanceCheckDate(isEditStage4 ? getDefaultFinanceCheckDate(inspection.finance_check_date) : (inspection.finance_check_date ?? ""));
+      setConsigneeName(inspection.consignee_name ?? "");
+      setConsigneeDesignation(inspection.consignee_designation ?? "");
+      setItems(inspection.items.length > 0 ? inspection.items : [blankItem()]);
+    } else {
+      setDate(new Date().toISOString().slice(0, 10));
+      setContractNo("");
+      setContractDate("");
+      setContractorName("");
+      setContractorAddress("");
+      setIndenter("");
+      setIndentNo("");
+      setDepartment("");
+      setDateOfDelivery("");
+      setDeliveryType("FULL");
+      setRemarks("");
+      setInspectedBy("");
+      setDateOfInspection("");
+      setFinanceCheckDate("");
+      setConsigneeName("");
+      setConsigneeDesignation("");
+      setItems([blankItem()]);
+    }
+    setFiles([]);
+    setTouched(false);
+    setQuantityInputErrors({});
+    setSubmitting(false);
+    setSubmitError(null);
+  }, [inspection, mode, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    setRefsLoading(true);
+    Promise.all([
+      apiFetch<Page<InspectionLocationOption> | InspectionLocationOption[]>("/api/inventory/locations/?page_size=500")
+        .then(data => (Array.isArray(data) ? data : data.results)),
+      apiFetch<Page<InspectionItemOption> | InspectionItemOption[]>("/api/inventory/items/?page_size=500")
+        .then(data => (Array.isArray(data) ? data : data.results)),
+      apiFetch<Page<InspectionStockRegisterOption> | InspectionStockRegisterOption[]>("/api/inventory/stock-registers/?page_size=500")
+        .then(data => (Array.isArray(data) ? data : data.results)),
+    ])
+      .then(([loadedLocations, loadedItems, loadedRegisters]) => {
+        const standaloneLocations = loadedLocations.filter(location => location.is_standalone);
+        const scopedLocations = mode === "create"
+          ? getScopedInspectionLocations(loadedLocations, user?.assigned_locations, Boolean(user?.is_superuser))
+          : standaloneLocations;
+        setLocations(scopedLocations);
+        if (mode === "create") {
+          const nextDepartment = getAutoSelectedInspectionLocation(scopedLocations);
+          setDepartment(nextDepartment);
+        }
+        setItemOptions(loadedItems);
+        setStockRegisters(loadedRegisters);
+      })
+      .catch(() => {})
+      .finally(() => setRefsLoading(false));
+  }, [mode, open, user?.assigned_locations, user?.is_superuser]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, open]);
+
+  const updateItem = (idx: number, patch: Partial<InspectionItemRecord>) => {
+    setItems(prev => prev.map((item, index) => (index === idx ? { ...item, ...patch } : item)));
+  };
+  const setQuantityInputError = (idx: number, error: string | null) => {
+    setQuantityInputErrors(prev => {
+      const next = { ...prev };
+      if (error) next[idx] = error;
+      else delete next[idx];
+      return next;
+    });
+  };
+  const updateItemQuantity = (
+    idx: number,
+    field: "tendered_quantity" | "accepted_quantity" | "rejected_quantity",
+    rawValue: string,
+  ) => {
+    const nextValue = Number(rawValue);
+    if (!Number.isFinite(nextValue)) return;
+
+    const item = items[idx];
+    if (!item) return;
+
+    const error = getInspectionQuantityUpdateError(item, { [field]: nextValue });
+    if (error) {
+      setQuantityInputError(idx, error);
+      return;
+    }
+
+    setQuantityInputError(idx, null);
+    updateItem(idx, { [field]: nextValue });
+  };
+  const updateItemDescription = (idx: number, value: string, target: HTMLTextAreaElement) => {
+    updateItem(idx, { item_description: value });
+    target.style.height = "auto";
+    target.style.height = `${target.scrollHeight}px`;
+  };
+
+  const addItem = () => setItems(prev => [...prev, blankItem()]);
+
+  const removeItem = (idx: number) => {
+    if (items.length <= 1) return;
+    setItems(prev => prev.filter((_, index) => index !== idx));
+  };
+
+  const errors: Record<string, string> = {};
+  if (canEditBasic) {
+    if (!date) errors.date = "Required";
+    if (!contractNo.trim()) errors.contract_no = "Required";
+    if (!contractDate) errors.contract_date = "Required";
+    if (!contractorName.trim()) errors.contractor_name = "Required";
+    if (!contractorAddress.trim()) errors.contractor_address = "Required";
+    if (!indenter.trim()) errors.indenter = "Required";
+    if (!indentNo.trim()) errors.indent_no = "Required";
+    if (!department) errors.department = "Required";
+    if (!dateOfDelivery) errors.date_of_delivery = "Required";
+    if (!inspectedBy.trim()) errors.inspected_by = "Required";
+    if (!dateOfInspection) errors.date_of_inspection = "Required";
+    if (!consigneeName.trim()) errors.consignee_name = "Required";
+    if (!consigneeDesignation.trim()) errors.consignee_designation = "Required";
+    if (items.length === 0) errors.items = "At least one item is required";
+    items.forEach((item, index) => {
+      if (!item.item_description.trim()) errors[`item_${index}_desc`] = "Required";
+      const quantityError = getInspectionQuantityError(item);
+      if (quantityError) errors[`item_${index}_qty`] = quantityError;
+      if (Number(item.rejected_quantity || 0) > 0 && !item.remarks?.trim()) errors[`item_${index}_reject_reason`] = "Enter rejection reason.";
+    });
+  }
+
+  const issueCount = touched ? Object.keys(errors).length : 0;
+
+  const buildStagePayload = () => {
+    const payload: Record<string, unknown> = {
+      items: items.map(item => {
+        const base: Record<string, unknown> = {
+          id: item.id,
+          item_description: item.item_description,
+          item: item.item || null,
+          tendered_quantity: item.tendered_quantity,
+          accepted_quantity: item.accepted_quantity,
+          rejected_quantity: item.rejected_quantity,
+          unit_price: item.unit_price,
+          item_specifications: item.item_specifications || null,
+          remarks: item.remarks || null,
+        };
+
+        if (canEditStage2 || canEditStage3 || canEditStage4 || isReadOnly || stage === "FINANCE_REVIEW") {
+          base.stock_register = item.stock_register || null;
+          base.stock_register_no = item.stock_register_no || null;
+          base.stock_register_page_no = item.stock_register_page_no || null;
+          base.stock_entry_date = item.stock_entry_date || null;
+        }
+
+        if (canEditStage3 || canEditStage4 || isReadOnly || stage === "FINANCE_REVIEW") {
+          base.central_register = item.central_register || null;
+          base.central_register_no = item.central_register_no || null;
+          base.central_register_page_no = item.central_register_page_no || null;
+          base.batch_number = item.batch_number || null;
+          base.manufactured_date = item.manufactured_date || null;
+          base.expiry_date = item.expiry_date || null;
+        }
+
+        if (canEditStage4 || stage === "FINANCE_REVIEW") {
+          base.depreciation_asset_class = item.depreciation_asset_class || null;
+          base.capitalization_cost = item.capitalization_cost || null;
+          base.capitalization_date = item.capitalization_date || null;
+        }
+
+        return base;
+      }),
+    };
+
+    if (canEditStage4) {
+      payload.finance_check_date = financeCheckDate || null;
+    }
+
+    return payload;
+  };
+
+  const submit = async (saveAsDraft = false) => {
+    setTouched(true);
+    setSubmitError(null);
+    if (Object.keys(errors).length > 0 && canEditBasic) {
+      return {
+        ok: false,
+        errorType: "validation_error",
+        message: "Resolve the highlighted inspection fields before submitting.",
+        fieldErrors: errors,
+      };
+    }
+
+    setSubmitting(true);
+    try {
+      const payload: Record<string, unknown> = {};
+      let savedInspection: InspectionRecord | null = null;
+      if (canEditBasic) {
+        Object.assign(payload, {
+          date,
+          contract_no: contractNo,
+          contract_date: contractDate || null,
+          contractor_name: contractorName,
+          contractor_address: contractorAddress || null,
+          indenter,
+          indent_no: indentNo,
+          department: department || null,
+          date_of_delivery: dateOfDelivery || null,
+          delivery_type: deliveryType,
+          remarks: remarks || null,
+          inspected_by: inspectedBy || null,
+          date_of_inspection: dateOfInspection || null,
+          consignee_name: consigneeName || null,
+          consignee_designation: consigneeDesignation || null,
+          is_initiated: mode === "create" && !saveAsDraft,
+          items: items.map(item => ({
+            ...(item.id ? { id: item.id } : {}),
+            item: item.item || null,
+            item_description: item.item_description,
+            item_specifications: item.item_specifications || null,
+            tendered_quantity: item.tendered_quantity,
+            accepted_quantity: item.accepted_quantity,
+            rejected_quantity: item.rejected_quantity,
+            unit_price: item.unit_price,
+            remarks: item.remarks || null,
+          })),
+        });
+      } else {
+        Object.assign(payload, buildStagePayload());
+      }
+
+      if (files.length > 0) {
+        const formData = new FormData();
+        formData.append("items", JSON.stringify(payload.items));
+        for (const [key, value] of Object.entries(payload)) {
+          if (key === "items") continue;
+          if (value !== null && value !== undefined) formData.append(key, String(value));
+        }
+        files.forEach((file, index) => formData.append(`documents[${index}]`, file));
+
+        const url = mode === "edit" && inspection
+          ? `${API_BASE}/api/inventory/inspections/${inspection.id}/`
+          : `${API_BASE}/api/inventory/inspections/`;
+        const response = await apiRequest(url.replace(API_BASE, ''), {
+          method: mode === "edit" ? "PATCH" : "POST",
+          body: formData,
+          credentials: "include",
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => null);
+          const message = body?.detail ?? `HTTP ${response.status}`;
+          setSubmitError(message);
+          return {
+            ok: false,
+            errorType: "backend_error",
+            message,
+            fieldErrors: body && typeof body === "object" ? body : undefined,
+          };
+        }
+        savedInspection = await response.json().catch(() => null);
+      } else if (mode === "edit" && inspection) {
+        savedInspection = await apiFetch<InspectionRecord>(`/api/inventory/inspections/${inspection.id}/`, {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        });
+      } else {
+        savedInspection = await apiFetch<InspectionRecord>("/api/inventory/inspections/", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+      }
+
+      const result = {
+        ok: true,
+        message: saveAsDraft
+          ? "Inspection certificate draft saved."
+          : "Inspection certificate submitted successfully.",
+        recordId: savedInspection?.id ?? inspection?.id,
+        redirectTo: savedInspection?.id ?? inspection?.id
+          ? `/inspections/${savedInspection?.id ?? inspection?.id}`
+          : "/inspections",
+      };
+      await onSave();
+      onClose();
+      return result;
+    } catch (err) {
+      const failure = normalizeCopilotSubmitError(err);
+      setSubmitError(failure.message || "Failed to save");
+      return failure;
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const copilotFields = useMemo<CopilotFormField[]>(
+    () => [
+      { name: "date", label: "Certificate Date", type: "date", required: canEditBasic, readOnly: !canEditBasic },
+      { name: "contract_no", label: "Contract Number", type: "string", required: canEditBasic, readOnly: !canEditBasic },
+      { name: "contract_date", label: "Contract Date", type: "date", required: canEditBasic, readOnly: !canEditBasic },
+      {
+        name: "delivery_type",
+        label: "Delivery Type",
+        type: "select",
+        required: canEditBasic,
+        readOnly: !canEditBasic,
+        options: [
+          { label: "Full", value: "FULL" },
+          { label: "Part", value: "PART" },
+        ],
+      },
+      { name: "contractor_name", label: "Contractor Name", type: "string", required: canEditBasic, readOnly: !canEditBasic },
+      { name: "contractor_address", label: "Contractor Address", type: "string", required: canEditBasic, readOnly: !canEditBasic },
+      { name: "indenter", label: "Indenter", type: "string", required: canEditBasic, readOnly: !canEditBasic },
+      { name: "indent_no", label: "Indent Number", type: "string", required: canEditBasic, readOnly: !canEditBasic },
+      {
+        name: "department",
+        label: "Department",
+        type: "select",
+        required: canEditBasic,
+        readOnly: !canEditBasic,
+        optionSource: "inspections.departments",
+        resolver: "search_form_options",
+        options: ensureValueInOptions(
+          locations.map(location => ({ label: location.name, value: location.id })),
+          department || inspection?.department,
+          inspection?.department_name,
+        ),
+      },
+      { name: "date_of_delivery", label: "Date of Delivery", type: "date", required: canEditBasic, readOnly: !canEditBasic },
+      { name: "remarks", label: "Remarks", type: "string", readOnly: !canEditBasic },
+      { name: "inspected_by", label: "Inspected By", type: "string", required: canEditBasic, readOnly: !canEditBasic },
+      { name: "date_of_inspection", label: "Date of Inspection", type: "date", required: canEditBasic, readOnly: !canEditBasic },
+      { name: "consignee_name", label: "Consignee Name", type: "string", required: canEditBasic, readOnly: !canEditBasic },
+      { name: "consignee_designation", label: "Consignee Designation", type: "string", required: canEditBasic, readOnly: !canEditBasic },
+      { name: "finance_check_date", label: "Finance Check Date", type: "date", readOnly: !canEditStage4 },
+      {
+        name: "items",
+        label: "Inspection Items",
+        type: "array",
+        required: canEditItems,
+        readOnly: !(canEditItems || canEditStage2 || canEditStage3 || canEditStage4),
+        description:
+          "Array of item rows. Prefer exact per-row fields like items.0.item_description, items.0.tendered_quantity, and items.0.remarks instead of replacing the full array.",
+        arrayItemFields: buildInspectionItemArrayCopilotFields({
+          canEditItems,
+          canEditStock: canEditStage2,
+          canEditCentral: canEditStage3,
+          canEditFinance: canEditStage4,
+        }),
+      },
+      ...buildInspectionCertificateItemCopilotFields({
+        items,
+        canEditItems,
+        canEditStock: canEditStage2,
+        canEditCentral: canEditStage3,
+        departmentRegisterOptions,
+        centralRegisterOptions,
+        itemOptions,
+      }),
+    ],
+    [
+      canEditBasic,
+      canEditItems,
+      canEditStage2,
+      canEditStage3,
+      canEditStage4,
+      centralRegisterOptions,
+      departmentRegisterOptions,
+      itemOptions,
+      items,
+      locations,
+    ],
+  );
+
+  const copilotFormValues = useMemo(
+    () => ({
+      date,
+      contract_no: contractNo,
+      contract_date: contractDate,
+      contractor_name: contractorName,
+      contractor_address: contractorAddress,
+      indenter,
+      indent_no: indentNo,
+      department,
+      date_of_delivery: dateOfDelivery,
+      delivery_type: deliveryType,
+      remarks,
+      inspected_by: inspectedBy,
+      date_of_inspection: dateOfInspection,
+      finance_check_date: financeCheckDate,
+      consignee_name: consigneeName,
+      consignee_designation: consigneeDesignation,
+      items: items.map(item => ({
+        item_description: item.item_description,
+        item_specifications: item.item_specifications,
+        tendered_quantity: item.tendered_quantity,
+        accepted_quantity: item.accepted_quantity,
+        rejected_quantity: item.rejected_quantity,
+        unit_price: item.unit_price,
+        remarks: item.remarks,
+        stock_register_no: item.stock_register_no,
+        stock_register_page_no: item.stock_register_page_no,
+        stock_entry_date: item.stock_entry_date,
+        central_register_no: item.central_register_no,
+        central_register_page_no: item.central_register_page_no,
+        batch_number: item.batch_number,
+        manufactured_date: item.manufactured_date,
+        expiry_date: item.expiry_date,
+        depreciation_asset_class: item.depreciation_asset_class,
+        capitalization_cost: item.capitalization_cost,
+        capitalization_date: item.capitalization_date,
+      })),
+    }),
+    [
+      consigneeDesignation,
+      consigneeName,
+      contractDate,
+      contractNo,
+      contractorAddress,
+      contractorName,
+      date,
+      dateOfDelivery,
+      dateOfInspection,
+      deliveryType,
+      department,
+      financeCheckDate,
+      indenter,
+      indentNo,
+      inspectedBy,
+      items,
+      remarks,
+    ],
+  );
+
+  const scalarCopilotSetters = useMemo(
+    () =>
+      ({
+        date: setDate,
+        contract_no: setContractNo,
+        contract_date: setContractDate,
+        contractor_name: setContractorName,
+        contractor_address: setContractorAddress,
+        indenter: setIndenter,
+        indent_no: setIndentNo,
+        department: (value: unknown) =>
+          setDepartment(value === "" || value == null ? "" : Number(value) || ""),
+        date_of_delivery: setDateOfDelivery,
+        delivery_type: (value: unknown) =>
+          setDeliveryType(value === "PART" ? "PART" : "FULL"),
+        remarks: setRemarks,
+        inspected_by: setInspectedBy,
+        date_of_inspection: setDateOfInspection,
+        finance_check_date: setFinanceCheckDate,
+        consignee_name: setConsigneeName,
+        consignee_designation: setConsigneeDesignation,
+      }) as Record<string, (value: unknown) => void>,
+    [],
+  );
+
+  const applyCopilotValues = useCallback(
+    (values: Record<string, unknown>) => {
+      const applied: string[] = [];
+      const ignored: string[] = [];
+      const itemValues: Record<string, unknown> = {};
+
+      for (const [field, value] of Object.entries(values)) {
+        const fieldDef = copilotFields.find(candidate => candidate.name === field);
+        if (!fieldDef || fieldDef.readOnly) {
+          ignored.push(field);
+          continue;
+        }
+
+        if (field === "items" || parseInspectionItemFieldPath(field)) {
+          itemValues[field] = value;
+          continue;
+        }
+
+        const setter = scalarCopilotSetters[field];
+        if (!setter) {
+          ignored.push(field);
+          continue;
+        }
+        setter(value ?? "");
+        applied.push(field);
+      }
+
+      if (Object.keys(itemValues).length > 0) {
+        const itemPatch = applyInspectionItemCopilotPatches({
+          currentItems: items,
+          values: itemValues,
+          blankItem,
+        });
+        setItems(itemPatch.nextItems.length > 0 ? itemPatch.nextItems : [blankItem()]);
+        applied.push(...itemPatch.applied);
+        ignored.push(...itemPatch.ignored);
+      }
+
+      return { applied, ignored };
+    },
+    [copilotFields, items, scalarCopilotSetters],
+  );
+
+  const canCopilotSetValues =
+    open && !isReadOnly && (canEditBasic || canEditItems || canEditStage2 || canEditStage3 || canEditStage4);
+
+  const { submitManually } = useCopilotForm({
+    formId: copilotFormId,
+    title: copilotFormTitle,
+    description:
+      "Inspection certificate modal. The assistant can patch visible editable fields and item rows, but backend save still enforces permissions.",
+    mode,
+    active: open,
+    canSetValues: canCopilotSetValues,
+    canValidate: open,
+    canSubmit: open && !isReadOnly && !submitting,
+    fields: copilotFields,
+    values: copilotFormValues,
+    errors: touched ? errors : {},
+    requirements: {
+      setValues: { requiredCapabilities: [{ module: "inspections", level: "manage" }] },
+      validate: { requiredCapabilities: [{ module: "inspections", level: "manage" }] },
+      submit: { requiredCapabilities: [{ module: "inspections", level: "manage" }] },
+    },
+    setValues: applyCopilotValues,
+    // Route items.N.item option searches through the hybrid backend endpoint
+    // (pgvector + tsvector + RRF). This is agent-only — human-facing dropdowns
+    // continue to use the standard keyword search via ItemViewSet.list.
+    searchOptions: request => searchCentralRegisterItemOptions({
+      ...request,
+      fields: copilotFields,
+    }),
+    validate: () => {
+      setTouched(true);
+      return {
+        ok: Object.keys(errors).length === 0,
+        errors,
+      };
+    },
+    submit: intent => submit(intent === "save_draft"),
+  });
+
+  if (!open) return null;
+
+  const title = mode === "create"
+    ? "New Inspection Certificate"
+    : `${inspection?.contract_no ?? "Edit"} — ${getInspectionStageDisplayLabel({ stage, status: inspection?.status })}`;
+
+  const imagePreview = previewFile && previewFile.type === "image" ? (
+    <div className="doc-preview-overlay" onClick={closePreview}>
+      <div className="doc-preview-inner" onClick={event => event.stopPropagation()}>
+        <div className="doc-preview-header">
+          <span className="doc-preview-name">{previewFile.name}</span>
+          <button type="button" className="modal-close" onClick={closePreview} aria-label="Close preview">
+            <InspectionIcon d="M18 6L6 18M6 6l12 12" size={14} />
+          </button>
+        </div>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={previewFile.url} alt={previewFile.name} className="doc-preview-img" />
+      </div>
+    </div>
+  ) : null;
+
+  return (
+    <>
+      {imagePreview}
+      <div className="modal-backdrop">
+        <div className="modal inspection-modal" role="dialog" aria-modal="true">
+          <div className="modal-head">
+            <div>
+              <h2>{title}</h2>
+            </div>
+            <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
+              <InspectionIcon d="M18 6L6 18M6 6l12 12" size={14} />
+            </button>
+          </div>
+          <div className="modal-body">
+            {submitError && (
+              <div style={{ padding: "10px 14px", background: "var(--danger-weak)", border: "1px solid color-mix(in oklch, var(--danger) 30%, transparent)", borderRadius: "var(--radius)", color: "var(--danger)", fontSize: 13, marginBottom: 14 }}>
+                {submitError}
+              </div>
+            )}
+
+            <Section n={1} title="Contract Details">
+              <div className="form-grid-2">
+                <Field label="Certificate Date" required={canEditBasic}>
+                  <input type="date" value={date} onChange={event => setDate(event.target.value)} disabled={!canEditBasic} />
+                </Field>
+                <Field label="Contract Number" required={canEditBasic} error={touched ? errors.contract_no : undefined}>
+                  <input value={contractNo} onChange={event => setContractNo(event.target.value)} placeholder="e.g. NED/2026/001" disabled={!canEditBasic} />
+                </Field>
+                <Field label="Contract Date" required={canEditBasic} error={touched ? errors.contract_date : undefined}>
+                  <input type="date" value={contractDate} onChange={event => setContractDate(event.target.value)} disabled={!canEditBasic} />
+                </Field>
+                <Field label="Delivery Type">
+                  <div className="seg" style={{ width: "fit-content" }}>
+                    <button type="button" className={"seg-btn" + (deliveryType === "FULL" ? " active" : "")} onClick={() => canEditBasic && setDeliveryType("FULL")} disabled={!canEditBasic}>
+                      Full
+                    </button>
+                    <button type="button" className={"seg-btn" + (deliveryType === "PART" ? " active" : "")} onClick={() => canEditBasic && setDeliveryType("PART")} disabled={!canEditBasic}>
+                      Part
+                    </button>
+                  </div>
+                </Field>
+                <Field label="Contractor Name" required={canEditBasic} error={touched ? errors.contractor_name : undefined}>
+                  <input value={contractorName} onChange={event => setContractorName(event.target.value)} placeholder="Contractor name" disabled={!canEditBasic} />
+                </Field>
+                <Field label="Contractor Address" required={canEditBasic} error={touched ? errors.contractor_address : undefined}>
+                  <input value={contractorAddress} onChange={event => setContractorAddress(event.target.value)} placeholder="Address" disabled={!canEditBasic} />
+                </Field>
+                <Field label="Indenter" required={canEditBasic} error={touched ? errors.indenter : undefined}>
+                  <input value={indenter} onChange={event => setIndenter(event.target.value)} placeholder="Indenter name" disabled={!canEditBasic} />
+                </Field>
+                <Field label="Indent Number" required={canEditBasic} error={touched ? errors.indent_no : undefined}>
+                  <input value={indentNo} onChange={event => setIndentNo(event.target.value)} placeholder="Indent no." disabled={!canEditBasic} />
+                </Field>
+                <Field label="Department" required={canEditBasic} error={touched ? errors.department : undefined} hint={!touched || !errors.department ? locationScopeHint : undefined}>
+                  {singleCreateDepartment ? (
+                    <input value={singleCreateDepartment.name} readOnly disabled />
+                  ) : (
+                    <ThemedSelect
+                      value={department ? String(department) : ""}
+                      onChange={value => setDepartment(value ? Number(value) : "")}
+                      placeholder="Select department..."
+                      ariaLabel="Department"
+                      disabled={!canEditBasic || refsLoading}
+                      options={locations.map(location => ({ value: String(location.id), label: location.name }))}
+                    />
+                  )}
+                </Field>
+                <Field label="Date of Delivery" required={canEditBasic} error={touched ? errors.date_of_delivery : undefined}>
+                  <input type="date" value={dateOfDelivery} onChange={event => setDateOfDelivery(event.target.value)} disabled={!canEditBasic} />
+                </Field>
+              </div>
+            </Section>
+
+            <Section n={2} title="Inspection Details">
+              <div className="form-grid-2">
+                <Field label="Inspected By" required={canEditBasic} error={touched ? errors.inspected_by : undefined}>
+                  <input value={inspectedBy} onChange={event => setInspectedBy(event.target.value)} placeholder="Inspector name" disabled={!canEditBasic} />
+                </Field>
+                <Field label="Date of Inspection" required={canEditBasic} error={touched ? errors.date_of_inspection : undefined}>
+                  <input type="date" value={dateOfInspection} onChange={event => setDateOfInspection(event.target.value)} disabled={!canEditBasic} />
+                </Field>
+                <Field label="Consignee Name" required={canEditBasic} error={touched ? errors.consignee_name : undefined}>
+                  <input value={consigneeName} onChange={event => setConsigneeName(event.target.value)} placeholder="Consignee" disabled={!canEditBasic} />
+                </Field>
+                <Field label="Consignee Designation" required={canEditBasic} error={touched ? errors.consignee_designation : undefined}>
+                  <input value={consigneeDesignation} onChange={event => setConsigneeDesignation(event.target.value)} placeholder="Designation" disabled={!canEditBasic} />
+                </Field>
+                <Field label="Remarks" span={2}>
+                  <textarea className="inspection-remarks-textarea" value={remarks} onChange={event => setRemarks(event.target.value)} placeholder="Any remarks…" rows={2} disabled={!canEditBasic} />
+                </Field>
+              </div>
+            </Section>
+
+            <Section n={3} title="Items">
+              <div className="inspection-items-card-list">
+                {items.map((item, index) => {
+                  const canEditRejectionReason = canEditItems || canEditStage2 || canEditStage3 || canEditStage4;
+                  const showRejectionReason = Number(item.rejected_quantity || 0) > 0;
+                  const quantityError = quantityInputErrors[index] || (touched ? errors[`item_${index}_qty`] : "");
+
+                  return (
+                    <div key={item.id ?? `new-${index}`} className="inspection-item-card">
+                      <div className="inspection-item-card-head">
+                        <span className="inspection-item-card-index mono">{index + 1}</span>
+                        <div className="inspection-item-card-desc">
+                          <textarea
+                            className="inspection-item-description-input"
+                            rows={1}
+                            value={item.item_description}
+                            onChange={event => updateItemDescription(index, event.target.value, event.currentTarget)}
+                            placeholder="Item description"
+                            disabled={!canEditItems}
+                          />
+                          {touched && errors[`item_${index}_desc`] && <div className="field-error">{errors[`item_${index}_desc`]}</div>}
+                        </div>
+                        {canEditItems && (
+                          <Button type="button" variant="outline" size="xs" className="btn-danger-ghost" onClick={() => removeItem(index)} disabled={items.length <= 1} title="Remove item">
+                            <InspectionIcon d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0l1 12h6l1-12" size={12} />
+                          </Button>
+                        )}
+                      </div>
+
+                      <div className="inspection-item-card-fields">
+                        <Field label="Tendered">
+                          <input type="number" min={1} value={item.tendered_quantity} onChange={event => updateItemQuantity(index, "tendered_quantity", event.target.value)} disabled={!canEditItems} />
+                        </Field>
+                        <Field label="Accepted">
+                          <input type="number" min={0} value={item.accepted_quantity} onChange={event => updateItemQuantity(index, "accepted_quantity", event.target.value)} disabled={!canEditRejectionReason} />
+                        </Field>
+                        <Field label="Rejected">
+                          <input type="number" min={0} value={item.rejected_quantity} onChange={event => updateItemQuantity(index, "rejected_quantity", event.target.value)} disabled={!canEditRejectionReason} />
+                        </Field>
+                        <Field label="Unit Price (PKR)">
+                          <input className="inspection-unit-price-input" type="number" step="0.01" value={item.unit_price} onChange={event => updateItem(index, { unit_price: event.target.value })} disabled={!canEditItems} />
+                        </Field>
+                      </div>
+
+                      {quantityError ? <div className="field-error inspection-item-card-error">{quantityError}</div> : null}
+
+                      {showStockColumns || showCentralColumns ? (
+                        <div className="inspection-item-card-fields">
+                          {showStockColumns && (
+                            <>
+                              <Field label="Stock Register">
+                                <ThemedSelect
+                                  value={item.stock_register == null ? "" : String(item.stock_register)}
+                                  onChange={value => {
+                                    const selectedId = value ? Number(value) : null;
+                                    const register = departmentRegisterOptions.find(option => option.id === selectedId);
+                                    updateItem(index, {
+                                      stock_register: selectedId,
+                                      stock_register_no: register?.register_number ?? "",
+                                    });
+                                  }}
+                                  placeholder="-"
+                                  ariaLabel="Stock register"
+                                  size="compact"
+                                  disabled={!canEditStage2 && !canEditStage3 && !canEditStage4}
+                                  options={departmentRegisterOptions.map(register => ({
+                                    value: String(register.id),
+                                    label: register.register_number,
+                                  }))}
+                                />
+                              </Field>
+                              <Field label="Stock Page #">
+                                <input value={item.stock_register_page_no} onChange={event => updateItem(index, { stock_register_page_no: event.target.value })} placeholder="Page #" disabled={!canEditStage2 && !canEditStage3 && !canEditStage4} />
+                              </Field>
+                            </>
+                          )}
+                          {showCentralColumns && (
+                            <>
+                              <Field label="Central Register">
+                                <ThemedSelect
+                                  value={item.central_register == null ? "" : String(item.central_register)}
+                                  onChange={value => {
+                                    const selectedId = value ? Number(value) : null;
+                                    const register = centralRegisterOptions.find(option => option.id === selectedId);
+                                    updateItem(index, {
+                                      central_register: selectedId,
+                                      central_register_no: register?.register_number ?? "",
+                                    });
+                                  }}
+                                  placeholder="-"
+                                  ariaLabel="Central register"
+                                  size="compact"
+                                  disabled={!canEditStage3 && !canEditStage4}
+                                  options={centralRegisterOptions.map(register => ({
+                                    value: String(register.id),
+                                    label: register.register_number,
+                                  }))}
+                                />
+                              </Field>
+                              <Field label="Central Page #">
+                                <input value={item.central_register_page_no} onChange={event => updateItem(index, { central_register_page_no: event.target.value })} placeholder="Page #" disabled={!canEditStage3 && !canEditStage4} />
+                              </Field>
+                              <Field label="System Item">
+                                <ThemedSelect
+                                  value={item.item == null ? "" : String(item.item)}
+                                  onChange={value => updateItem(index, { item: value ? Number(value) : null })}
+                                  placeholder="-"
+                                  ariaLabel="Catalog item"
+                                  size="compact"
+                                  disabled={!canEditStage3 && !canEditStage4}
+                                  options={itemOptions.map(option => ({
+                                    value: String(option.id),
+                                    label: option.name,
+                                    meta: option.code,
+                                  }))}
+                                />
+                              </Field>
+                            </>
+                          )}
+                        </div>
+                      ) : null}
+
+                      {showRejectionReason ? (
+                        <div className="inspection-rejection-reason">
+                          <Field label="Reason for rejection">
+                            <input
+                              value={item.remarks || ""}
+                              onChange={event => updateItem(index, { remarks: event.target.value })}
+                              placeholder="Reason for rejected quantity"
+                              disabled={!canEditRejectionReason}
+                            />
+                          </Field>
+                          {touched && errors[`item_${index}_reject_reason`] ? <div className="field-error">{errors[`item_${index}_reject_reason`]}</div> : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+              {canEditItems && (
+                <Button type="button" variant="outline" size="sm" onClick={addItem} style={{ marginTop: 8 }}>
+                  <InspectionIcon d="M12 5v14M5 12h14" size={13} />
+                  Add Item
+                </Button>
+              )}
+            </Section>
+
+            {showFinanceSection ? (
+              <Section n={4} title="Finance Review" sub="Record the finance check date before sign-off.">
+                <div className="form-grid-2">
+                  <Field label="Finance Check Date">
+                    <input type="date" value={financeCheckDate} onChange={event => setFinanceCheckDate(event.target.value)} disabled={!canEditStage4} />
+                  </Field>
+                </div>
+              </Section>
+            ) : null}
+
+            <Section n={documentsSectionNumber} title="Documents" sub="Attach supporting documents (PDF, images, DOCX — max 20 MB each).">
+              {inspection?.documents && inspection.documents.length > 0 && (
+                <div className="inspection-docs-list">
+                  {inspection.documents.map(document => (
+                    <a key={document.id} href={document.file.startsWith("http") ? document.file : `${API_BASE}${document.file}`} target="_blank" rel="noopener noreferrer" className="inspection-doc-chip">
+                      <InspectionIcon d="M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9z" size={13} />
+                      {document.label || "Document"}
+                    </a>
+                  ))}
+                </div>
+              )}
+              {(canEditBasic || canEditStage2 || canEditStage3 || canEditStage4) && (
+                <>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.docx"
+                    onChange={event => {
+                      const selectedFiles = event.currentTarget.files;
+                      if (!selectedFiles) return;
+                      setFiles(prev => [...prev, ...Array.from(selectedFiles)]);
+                    }}
+                    style={{ display: "none" }}
+                  />
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+                    <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+                      <InspectionIcon d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" size={13} />
+                      Upload Files
+                    </Button>
+                    {files.length > 0 && <span className="mono" style={{ fontSize: 12, color: "var(--muted)" }}>{files.length} file(s) queued</span>}
+                  </div>
+                  {files.length > 0 && (
+                    <div className="inspection-docs-list" style={{ marginTop: 6 }}>
+                      {files.map((file, index) => (
+                        <span key={`${file.name}-${index}`} className="inspection-doc-chip">
+                          <button type="button" className="chip-file-link" onClick={() => openLocalPreview(file)} style={{ background: "transparent", border: 0, padding: 0, color: "inherit", cursor: "pointer" }}>
+                            {file.name}
+                          </button>
+                          <button type="button" className="chip-remove" onClick={() => setFiles(prev => prev.filter((_, fileIndex) => fileIndex !== index))}>×</button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </Section>
+
+            {mode === "edit" && inspection && (
+              <Section n={auditSectionNumber} title="Audit Trail">
+                <div className="inspection-audit-trail">
+                  {inspection.initiated_by_name && (
+                    <div className="audit-entry">
+                      <span className="audit-label">Initiated by</span>
+                      <span className="mono">{inspection.initiated_by_name}</span>
+                      <span className="audit-date">{formatInspectionDate(inspection.initiated_at)}</span>
+                    </div>
+                  )}
+                  {inspection.stock_filled_by && (
+                    <div className="audit-entry">
+                      <span className="audit-label">Stock filled by</span>
+                      <span className="mono">{inspection.stock_filled_by_name || `User #${inspection.stock_filled_by}`}</span>
+                      <span className="audit-date">{formatInspectionDate(inspection.stock_filled_at)}</span>
+                    </div>
+                  )}
+                  {inspection.central_store_filled_by && (
+                    <div className="audit-entry">
+                      <span className="audit-label">Central register by</span>
+                      <span className="mono">{inspection.central_store_filled_by_name || `User #${inspection.central_store_filled_by}`}</span>
+                      <span className="audit-date">{formatInspectionDate(inspection.central_store_filled_at)}</span>
+                    </div>
+                  )}
+                  {inspection.finance_reviewed_by && (
+                    <div className="audit-entry">
+                      <span className="audit-label">Finance reviewed by</span>
+                      <span className="mono">{inspection.finance_reviewed_by_name || `User #${inspection.finance_reviewed_by}`}</span>
+                      <span className="audit-date">{formatInspectionDate(inspection.finance_reviewed_at)}</span>
+                    </div>
+                  )}
+                  {inspection.rejected_by && (
+                    <div className="audit-entry audit-rejected">
+                      <span className="audit-label">{inspection.status === "CANCELLED" ? "Cancelled by" : "Rejected by"}</span>
+                      <span className="mono">{inspection.rejected_by_name || `User #${inspection.rejected_by}`}</span>
+                      <span className="audit-date">{formatInspectionDate(inspection.rejected_at)}</span>
+                      {inspection.rejection_reason && <div className="audit-reason">{inspection.rejection_reason}</div>}
+                    </div>
+                  )}
+                </div>
+              </Section>
+            )}
+          </div>
+
+          <footer className="modal-foot">
+            <div className="modal-foot-meta mono">
+              {submitError ? (
+                <span className="foot-err">{submitError}</span>
+              ) : issueCount > 0 ? (
+                <span className="foot-err">
+                  {issueCount} issue{issueCount > 1 ? "s" : ""} to resolve
+                </span>
+              ) : (
+                <span className="foot-ok">{mode === "create" ? "Ready to create" : `Stage: ${getInspectionStageDisplayLabel({ stage, status: inspection?.status })}`}</span>
+              )}
+            </div>
+            <div className="modal-foot-actions">
+              <Button type="button" variant="outline" size="md" onClick={onClose}>Cancel</Button>
+              {!isReadOnly && mode === "create" && (
+                <Button type="button" variant="outline" size="md" onClick={() => { void submitManually("save_draft"); }} disabled={submitting || refsLoading}>
+                  {submitting ? "Saving…" : "Save as Draft"}
+                </Button>
+              )}
+              {!isReadOnly && (
+                <Button type="button" size="md" onClick={() => { void submitManually("submit"); }} disabled={submitting || refsLoading}>
+                  {submitting
+                    ? "Saving…"
+                    : mode === "create"
+                      ? getCreateInspectionSubmitLabel(selectedDepartmentLevel)
+                      : canEditStage4
+                        ? "Save Finance Review"
+                        : "Save Changes"}
+                </Button>
+              )}
+            </div>
+          </footer>
+        </div>
+      </div>
+    </>
+  );
+}
+
+export function RejectInspectionModal({
+  open,
+  onClose,
+  onConfirm,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onConfirm: (reason: string) => void;
+}) {
+  const [reason, setReason] = useState("");
+  const [touched, setTouched] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setReason("");
+    setTouched(false);
+  }, [open]);
+
+  if (!open) return null;
+
+  return (
+    <div className="modal-backdrop">
+      <div className="modal inspection-return-modal" role="dialog" aria-modal="true" aria-labelledby="inspection-cancel-title">
+        <div className="modal-head">
+          <div>
+            <h2 id="inspection-cancel-title">Cancel Inspection</h2>
+          </div>
+          <button type="button" className="modal-close" onClick={onClose} aria-label="Close cancellation dialog">
+            <InspectionIcon d="M18 6L6 18M6 6l12 12" size={14} />
+          </button>
+        </div>
+        <div className="modal-body">
+          <div className="inspection-return-body">
+            <div className="inspection-return-intro is-danger">
+              <div className="inspection-return-intro-icon">
+                <InspectionIcon d={<><circle cx="12" cy="12" r="10" /><path d="M15 9l-6 6M9 9l6 6" /></>} size={16} />
+              </div>
+              <div className="inspection-return-intro-copy">
+                <div className="inspection-return-intro-label">Cancellation</div>
+                <div className="inspection-return-intro-title">Close this inspection workflow</div>
+                <p>Use cancellation only when this certificate should stop entirely. The cancellation reason will be stored on the inspection record for audit history.</p>
+              </div>
+            </div>
+
+            <Field label="Cancellation Reason" required error={touched && !reason.trim() ? "Required" : undefined}>
+              <textarea
+                className="inspection-return-textarea inspection-return-textarea-danger"
+                value={reason}
+                onChange={event => setReason(event.target.value)}
+                onBlur={() => setTouched(true)}
+                placeholder="Explain why this inspection is being cancelled…"
+                rows={5}
+              />
+            </Field>
+          </div>
+        </div>
+        <footer className="modal-foot">
+          <div className="modal-foot-meta">This will close the inspection and record the supplied reason in the workflow history.</div>
+          <div className="modal-foot-actions">
+            <Button type="button" variant="outline" size="md" onClick={onClose}>Back</Button>
+            <Button type="button" variant="destructive" size="md" onClick={() => { setTouched(true); if (reason.trim()) onConfirm(reason.trim()); }} disabled={!reason.trim()}>
+              Cancel inspection
+            </Button>
+          </div>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+export function ReturnInspectionModal({
+  open,
+  onClose,
+  onConfirm,
+  targetLabel,
+  submitting = false,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onConfirm: (reason: string) => void;
+  targetLabel: string;
+  submitting?: boolean;
+}) {
+  const [reason, setReason] = useState("");
+  const [touched, setTouched] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setReason("");
+    setTouched(false);
+  }, [open]);
+
+  if (!open) return null;
+
+  return (
+    <div className="modal-backdrop">
+      <div className="modal inspection-return-modal" role="dialog" aria-modal="true" aria-labelledby="inspection-return-title">
+        <div className="modal-head">
+          <div>
+            <h2 id="inspection-return-title">Request Revisions</h2>
+          </div>
+          <button type="button" className="modal-close" onClick={onClose} aria-label="Close return dialog" disabled={submitting}>
+            <InspectionIcon d="M18 6L6 18M6 6l12 12" size={14} />
+          </button>
+        </div>
+        <div className="modal-body">
+          <div className="inspection-return-body">
+            <div className="inspection-return-intro">
+              <div className="inspection-return-intro-icon">
+                <InspectionIcon d={<><path d="M12 3v12" /><path d="M12 19h.01" /><path d="M10.3 4.8L3.86 16a2 2 0 001.74 3h12.8a2 2 0 001.74-3L13.7 4.8a2 2 0 00-3.4 0z" /></>} size={16} />
+              </div>
+              <div className="inspection-return-intro-copy">
+                <div className="inspection-return-intro-label">Return target</div>
+                <div className="inspection-return-intro-title">{targetLabel}</div>
+                <p>Send the certificate back with a clear instruction. The earlier stage will reopen for correction while previously saved values remain available.</p>
+              </div>
+            </div>
+
+            <Field label="Revision Reason" required error={touched && !reason.trim() ? "Required" : undefined}>
+              <textarea
+                className="inspection-return-textarea"
+                value={reason}
+                onChange={event => setReason(event.target.value)}
+                onBlur={() => setTouched(true)}
+                placeholder="Explain what needs to be corrected before the workflow can move forward…"
+                rows={5}
+                disabled={submitting}
+              />
+            </Field>
+          </div>
+        </div>
+        <footer className="modal-foot">
+          <div className="modal-foot-meta">The officer reopening this certificate will see this revision request at the top of the detail page.</div>
+          <div className="modal-foot-actions">
+            <Button type="button" variant="outline" size="md" onClick={onClose} disabled={submitting}>Cancel</Button>
+            <Button
+              type="button"
+              size="md"
+              onClick={() => {
+                setTouched(true);
+                if (reason.trim()) onConfirm(reason.trim());
+              }}
+              disabled={!reason.trim() || submitting}
+            >
+              {submitting ? "Returning..." : targetLabel}
+            </Button>
+          </div>
+        </footer>
+      </div>
+    </div>
+  );
+}

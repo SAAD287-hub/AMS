@@ -1,0 +1,2014 @@
+"use client";
+import { fetchAllPages, loadStoreInventory, loadMovementPage, loadSelectedItemInventory } from "@/lib/stockEntryData";
+
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Topbar } from "@/components/Topbar";
+import { ListPagination } from "@/components/ListPagination";
+import { ThemedSelect } from "@/components/ThemedSelect";
+import { DropdownPortal } from "@/components/DropdownPortal";
+import { apiFetch, type Page } from "@/lib/api";
+import { getAllocatableTargetLocations, getAllocatableTargetPersons, getAllocatedReturnLocations, getAllocatedReturnPersons, getSelectableStockEntryStores, type StockAllocationRecord } from "@/lib/stockEntryLocationRules";
+import { getIssueAvailableQuantity, getIssueBatchOptions, getIssueInstanceOptions, getIssueItemOptions, getReturnBatchOptions, getReturnInstanceOptions, getReturnItemOptions, getReturnQuantityLimit, type StockEntryItemInstance, type StockEntryStockRecord, type StockEntryReturnTarget } from "@/lib/stockEntryItemRules";
+import { buildStockEntryPayload, getStockEntryDisplayDirection, getStockEntryRegisterStoreId, getStockEntrySourceRegisterOptions, resolveStockEntrySourceRegisterValue, validateStockEntryForm, type CreatableStockEntryType, type StockEntryFormItem, type StockEntryFormState } from "@/lib/stockEntryFormRules";
+import { applyStockEntryCopilotValuePatch, buildStockEntryCopilotReferenceContext, searchStockEntryCopilotOptions } from "@/lib/stockEntryCopilotForm";
+import { getStockEntryAcknowledgeTarget, getStockEntryMovementRows, getStockEntryMovementStatus, getStockEntryMovementUpdatedEntry } from "@/lib/stockEntryMovementRows";
+import { useCan, useCapabilities } from "@/contexts/CapabilitiesContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { useCopilotAction } from "@/hooks/useCopilotAction";
+import { useCopilotForm, type CopilotFormField } from "@/hooks/useCopilotForm";
+import { useCopilotListControls } from "@/hooks/useCopilotListControls";
+import { useCopilotReadable } from "@/hooks/useCopilotReadable";
+import { relTime, type LocationRecord } from "@/lib/userUiShared";
+import { normalizeCopilotSubmitError } from "@/lib/copilotFormRuntime";
+import { buildCopilotListContext } from "@/lib/copilotPageContext";
+import { consumePendingOpen, SAME_PAGE_OPEN_EVENT } from "@/lib/copilotPendingAction";
+import {
+  Alert as SharedAlert,
+  AlertActions,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/Alert";
+import { Button } from "@/components/ui/button";
+
+
+type Density = "compact" | "balanced" | "comfortable";
+type EntryType = "RECEIPT" | "ISSUE" | "RETURN";
+type EntryStatus = "DRAFT" | "PENDING_ACK" | "COMPLETED" | "REJECTED" | "CANCELLED" | "VOIDED";
+type CorrectionStatus = "REQUESTED" | "APPROVED" | "APPLIED" | "REJECTED" | "BLOCKED";
+
+const STOCK_ENTRIES_PAGE_SIZE = 12;
+
+interface ItemRecord {
+  id: number;
+  name: string;
+  code: string;
+  category_display?: string | null;
+  category_type?: string | null;
+  tracking_type?: string | null;
+  is_active: boolean;
+}
+
+interface ItemBatchRecord {
+  id: number;
+  item: number;
+  batch_number: string;
+  is_active: boolean;
+}
+
+interface StockRegisterRecord {
+  id: number;
+  register_number: string;
+  register_type: string;
+  store: number;
+  store_name?: string | null;
+  is_active: boolean;
+}
+
+interface PersonRecord {
+  id: number;
+  name: string;
+  designation?: string | null;
+  department?: string | null;
+  standalone_locations?: number[];
+  standalone_locations_display?: string[];
+  is_active: boolean;
+}
+
+interface StockEntryItemRecord {
+  id?: number;
+  item: number;
+  item_name?: string | null;
+  batch: number | null;
+  batch_number?: string | null;
+  quantity: number;
+  instances: number[];
+  stock_register: number | null;
+  stock_register_name?: string | null;
+  page_number: number | null;
+  ack_stock_register: number | null;
+  ack_stock_register_name?: string | null;
+  ack_page_number: number | null;
+}
+
+interface StockEntryRecord {
+  id: number;
+  entry_type: EntryType;
+  entry_number: string;
+  entry_date: string;
+  from_location: number | null;
+  from_location_name?: string | null;
+  to_location: number | null;
+  to_location_name?: string | null;
+  issued_to: number | null;
+  issued_to_name?: string | null;
+  status: EntryStatus;
+  remarks: string | null;
+  purpose: string | null;
+  items: StockEntryItemRecord[];
+  reference_entry?: number | null;
+  reference_purpose?: string | null;
+  cancellation_reason?: string | null;
+  cancelled_by_name?: string | null;
+  cancelled_at?: string | null;
+  created_by_name?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+  last_updated_by_name?: string | null;
+  can_acknowledge?: boolean;
+  can_delete?: boolean;
+  delete_blockers?: string[];
+  active_correction?: {
+    id: number;
+    original_entry?: number;
+    status: CorrectionStatus;
+    resolution_type: string;
+    reason: string;
+    message?: string | null;
+  } | null;
+  correction_status?: CorrectionStatus | null;
+}
+
+interface ReferenceData {
+  items: ItemRecord[];
+  batches: ItemBatchRecord[];
+  locations: LocationRecord[];
+  persons: PersonRecord[];
+  registers: StockRegisterRecord[];
+  allocations: StockAllocationRecord[];
+  stockRecords: StockEntryStockRecord[];
+  instances: StockEntryItemInstance[];
+}
+
+interface StockEntryScopeStore {
+  id: number;
+  name: string;
+  code?: string | null;
+  is_central?: boolean;
+}
+
+const Ic = ({ d, size = 16 }: { d: ReactNode | string; size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }} aria-hidden="true" focusable="false">
+    {typeof d === "string" ? <path d={d} /> : d}
+  </svg>
+);
+
+function formatLabel(value: string | null | undefined, fallback = "—") {
+  if (!value) return fallback;
+  return value.replace(/[_-]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function formatDate(value: string | null | undefined) {
+  if (!value) return "—";
+  return new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+}
+
+function entryTone(status: EntryStatus) {
+  if (status === "COMPLETED") return "pill-success";
+  if (status === "CANCELLED" || status === "VOIDED" || status === "REJECTED") return "pill-danger";
+  return "pill-warning";
+}
+
+function StatusPill({ status }: { status: EntryStatus }) {
+  return (
+    <span className={`pill ${entryTone(status)}`}>
+      <span className={`status-dot ${status === "COMPLETED" ? "active" : "inactive"}`} />
+      {formatLabel(status)}
+    </span>
+  );
+}
+
+function CorrectionPill({ entry }: { entry: StockEntryRecord }) {
+  const status = entry.active_correction?.status ?? entry.correction_status;
+  if (!status || status === "APPLIED" || status === "REJECTED") return null;
+
+  const label = status === "REQUESTED" ? "Correction requested" : `Correction ${formatLabel(status)}`;
+  return (
+    <span className={`pill ${status === "BLOCKED" ? "pill-danger" : "pill-warning"}`}>
+      {label}
+    </span>
+  );
+}
+
+function DensityToggle({ density, setDensity }: { density: Density; setDensity: (density: Density) => void }) {
+  return (
+    <div className="seg">
+      {(["compact", "balanced", "comfortable"] as const).map(option => (
+        <button type="button" key={option} className={"seg-btn" + (density === option ? " active" : "")} onClick={() => setDensity(option)}>
+          {formatLabel(option)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Alert({
+  title,
+  children,
+  action,
+  onDismiss,
+  variant,
+}: {
+  title?: string;
+  children: ReactNode;
+  action?: ReactNode;
+  onDismiss?: () => void;
+  variant?: "destructive" | "warning" | "info" | "success";
+}) {
+  return (
+    <SharedAlert variant={variant ?? "destructive"}>
+      {title ? <AlertTitle>{title}</AlertTitle> : null}
+      <AlertDescription>{children}</AlertDescription>
+      {(action || onDismiss) ? (
+        <AlertActions>
+          {action}
+          {onDismiss && (
+            <Button type="button" variant="ghost" size="xs" onClick={onDismiss}>
+              Dismiss
+            </Button>
+          )}
+        </AlertActions>
+      ) : null}
+    </SharedAlert>
+  );
+}
+
+function Field({ label, required, error, hint, children, span = 1 }: { label: string; required?: boolean; error?: string; hint?: string; children: ReactNode; span?: number }) {
+  return (
+    <div className={"field" + (error ? " has-error" : "")} style={{ gridColumn: `span ${span}` }}>
+      <div className="field-label">{label}{required && <span className="field-req">*</span>}</div>
+      {children}
+      {error ? <div className="field-error">{error}</div> : hint ? <div className="field-hint">{hint}</div> : null}
+    </div>
+  );
+}
+
+function Section({ n, title, sub, children }: { n: number; title: string; sub?: string; children: ReactNode }) {
+  return (
+    <section className="form-section">
+      <header className="form-section-head">
+        <div className="form-section-n mono">{String(n).padStart(2, "0")}</div>
+        <div>
+          <h3>{title}</h3>
+          {sub && <div className="form-section-sub">{sub}</div>}
+        </div>
+      </header>
+      <div className="form-section-body">{children}</div>
+    </section>
+  );
+}
+
+interface SearchableSelectOption {
+  value: string;
+  label: string;
+  meta?: string;
+}
+
+function SearchableSelect({ value, options, onChange, placeholder, searchPlaceholder, emptyLabel = "No matching options", disabled = false }: { value: string; options: SearchableSelectOption[]; onChange: (value: string) => void; placeholder: string; searchPlaceholder?: string; emptyLabel?: string; disabled?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const selected = options.find(option => option.value === value) ?? null;
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredOptions = normalizedQuery
+    ? options.filter(option => `${option.label} ${option.meta ?? ""}`.toLowerCase().includes(normalizedQuery))
+    : options;
+
+  const focusInput = () => requestAnimationFrame(() => inputRef.current?.focus());
+  const openMenu = () => {
+    if (disabled) return;
+    setOpen(true);
+    focusInput();
+  };
+
+  return (
+    <div
+      ref={rootRef}
+      className={"assignment-dropdown" + (open ? " open" : "") + (disabled ? " disabled" : "")}
+      onBlur={event => {
+        const nextTarget = event.relatedTarget;
+        if (
+          !(nextTarget instanceof Node) ||
+          (!event.currentTarget.contains(nextTarget) && !menuRef.current?.contains(nextTarget))
+        ) {
+          setOpen(false);
+          setQuery("");
+        }
+      }}
+    >
+      <div className="assignment-trigger" onClick={openMenu} aria-expanded={open}>
+        <Ic d={<><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></>} size={13} />
+        <input
+          ref={inputRef}
+          value={open ? query : selected?.label ?? ""}
+          placeholder={open ? searchPlaceholder ?? placeholder : placeholder}
+          disabled={disabled}
+          onFocus={() => {
+            if (disabled) return;
+            setOpen(true);
+          }}
+          onChange={event => {
+            if (!open) setOpen(true);
+            setQuery(event.target.value);
+          }}
+        />
+        {open && query ? (
+          <button
+            type="button"
+            className="assignment-trigger-clear"
+            onClick={event => {
+              event.stopPropagation();
+              setQuery("");
+              focusInput();
+            }}
+            aria-label="Clear search"
+          >
+            ×
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className="assignment-trigger-toggle"
+          onClick={event => {
+            event.stopPropagation();
+            if (disabled) return;
+            setOpen(prev => !prev);
+            focusInput();
+          }}
+          disabled={disabled}
+          aria-label={open ? "Close options" : "Open options"}
+        >
+          <Ic d={open ? "M18 15l-6-6-6 6" : "M6 9l6 6 6-6"} size={13} />
+        </button>
+      </div>
+
+      {open && !disabled ? (
+        <DropdownPortal anchorRef={rootRef} className="assignment-menu">
+        <div ref={menuRef}>
+          <div className="assignment-list" style={{ maxHeight: 190 }}>
+            {filteredOptions.length > 0 ? filteredOptions.map(option => (
+              <button
+                key={option.value}
+                type="button"
+                className={"assignment-row" + (option.value === value ? " selected" : "")}
+                onClick={() => {
+                  onChange(option.value);
+                  setQuery("");
+                  setOpen(false);
+                }}
+              >
+                <span className="assignment-name">{option.label}</span>
+                {option.meta ? <span className="assignment-code mono">{option.meta}</span> : null}
+              </button>
+            )) : (
+              <div className="scope-empty">{emptyLabel}</div>
+            )}
+          </div>
+        </div>
+        </DropdownPortal>
+      ) : null}
+    </div>
+  );
+}
+
+function InstanceMultiSelect({ value, options, onChange, placeholder, searchPlaceholder, emptyLabel = "No matching instances", disabled = false }: { value: string[]; options: SearchableSelectOption[]; onChange: (value: string[]) => void; placeholder: string; searchPlaceholder?: string; emptyLabel?: string; disabled?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const valueSet = new Set(value);
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredOptions = normalizedQuery
+    ? options.filter(option => `${option.label} ${option.meta ?? ""}`.toLowerCase().includes(normalizedQuery))
+    : options;
+  const selectedLabels = options.filter(option => valueSet.has(option.value)).map(option => option.label);
+  const summary = selectedLabels.length === 0
+    ? ""
+    : selectedLabels.length > 2
+    ? `${selectedLabels.slice(0, 2).join(", ")} +${selectedLabels.length - 2}`
+    : selectedLabels.join(", ");
+  const focusInput = () => requestAnimationFrame(() => inputRef.current?.focus());
+
+  const toggleValue = (nextValue: string) => {
+    const next = new Set(value);
+    next.has(nextValue) ? next.delete(nextValue) : next.add(nextValue);
+    onChange(Array.from(next));
+  };
+
+  return (
+    <div
+      ref={rootRef}
+      className={"assignment-dropdown" + (open ? " open" : "") + (disabled ? " disabled" : "")}
+      onBlur={event => {
+        const nextTarget = event.relatedTarget;
+        if (
+          !(nextTarget instanceof Node) ||
+          (!event.currentTarget.contains(nextTarget) && !menuRef.current?.contains(nextTarget))
+        ) {
+          setOpen(false);
+          setQuery("");
+        }
+      }}
+    >
+      <div
+        className="assignment-trigger"
+        onClick={() => {
+          if (disabled) return;
+          setOpen(true);
+          focusInput();
+        }}
+        aria-expanded={open}
+      >
+        <Ic d={<><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></>} size={13} />
+        <input
+          ref={inputRef}
+          value={open ? query : summary}
+          placeholder={open ? searchPlaceholder ?? placeholder : placeholder}
+          disabled={disabled}
+          onFocus={() => {
+            if (disabled) return;
+            setOpen(true);
+          }}
+          onChange={event => {
+            if (!open) setOpen(true);
+            setQuery(event.target.value);
+          }}
+        />
+        {open && query ? (
+          <button
+            type="button"
+            className="assignment-trigger-clear"
+            onClick={event => {
+              event.stopPropagation();
+              setQuery("");
+              focusInput();
+            }}
+            aria-label="Clear search"
+          >
+            ×
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className="assignment-trigger-toggle"
+          onClick={event => {
+            event.stopPropagation();
+            if (disabled) return;
+            setOpen(prev => !prev);
+            focusInput();
+          }}
+          disabled={disabled}
+          aria-label={open ? "Close instances" : "Open instances"}
+        >
+          <Ic d={open ? "M18 15l-6-6-6 6" : "M6 9l6 6 6-6"} size={13} />
+        </button>
+      </div>
+
+      {open && !disabled ? (
+        <DropdownPortal anchorRef={rootRef} className="assignment-menu">
+        <div ref={menuRef}>
+          <div className="assignment-list" style={{ maxHeight: 190 }}>
+            {filteredOptions.length > 0 ? filteredOptions.map(option => (
+              <button
+                key={option.value}
+                type="button"
+                className={"assignment-row" + (valueSet.has(option.value) ? " selected" : "")}
+                onClick={() => toggleValue(option.value)}
+              >
+                <input type="checkbox" checked={valueSet.has(option.value)} readOnly tabIndex={-1} style={{ width: 14, height: 14, flexShrink: 0 }} />
+                <span className="assignment-name">{option.label}</span>
+                {option.meta ? <span className="assignment-code mono">{option.meta}</span> : null}
+              </button>
+            )) : (
+              <div className="scope-empty">{emptyLabel}</div>
+            )}
+          </div>
+        </div>
+        </DropdownPortal>
+      ) : null}
+    </div>
+  );
+}
+
+function locationOption(location: { id: number; name: string; code?: string | null; location_type?: string | null }): SearchableSelectOption {
+  return {
+    value: String(location.id),
+    label: location.name,
+    meta: [location.code, location.location_type].filter(Boolean).join(" - "),
+  };
+}
+
+function personOption(person: PersonRecord): SearchableSelectOption {
+  return {
+    value: String(person.id),
+    label: person.name,
+    meta: [person.designation, person.department].filter(Boolean).join(" - "),
+  };
+}
+
+function instanceOption(instance: StockEntryItemInstance): SearchableSelectOption {
+  const fallback = `Instance ${instance.id}`;
+  return {
+    value: String(instance.id),
+    label: instance.serial_number || instance.qr_code || fallback,
+    meta: instance.qr_code && instance.serial_number ? instance.qr_code : undefined,
+  };
+}
+
+function isIndividualTracking(item: ItemRecord | undefined) {
+  return item?.tracking_type === "INDIVIDUAL";
+}
+
+function isQuantityTrackedItem(item: ItemRecord | undefined) {
+  return item?.tracking_type === "QUANTITY";
+}
+
+function blankItem(): StockEntryFormItem {
+  return { item: "", batch: "", quantity: "1", instances: [], stock_register: "", page_number: "" };
+}
+
+function emptyForm(): StockEntryFormState {
+  return {
+    entry_type: "ISSUE",
+    issue_target: "STORE",
+    return_source: "PERSON",
+    from_location: "",
+    to_location: "",
+    issued_to: "",
+    status: "PENDING_ACK",
+    purpose: "",
+    remarks: "",
+    items: [blankItem()],
+  };
+}
+
+function formFromEntry(entry: StockEntryRecord | null, locations: LocationRecord[] = []): StockEntryFormState {
+  if (!entry) return emptyForm();
+  const targetLocation = entry.to_location == null ? null : locations.find(location => location.id === entry.to_location);
+  const sourceLocation = entry.from_location == null ? null : locations.find(location => location.id === entry.from_location);
+  const issueTarget = entry.issued_to ? "PERSON" : targetLocation && !targetLocation.is_store ? "LOCATION" : "STORE";
+  const returnSource = entry.issued_to ? "PERSON" : sourceLocation && !sourceLocation.is_store ? "LOCATION" : "PERSON";
+  return {
+    entry_type: entry.entry_type === "RETURN" ? "RECEIPT" : entry.entry_type,
+    issue_target: issueTarget,
+    return_source: returnSource,
+    from_location: entry.from_location == null ? "" : String(entry.from_location),
+    to_location: entry.to_location == null ? "" : String(entry.to_location),
+    issued_to: entry.issued_to == null ? "" : String(entry.issued_to),
+    status: entry.status === "COMPLETED" ? "COMPLETED" : entry.status === "PENDING_ACK" ? "PENDING_ACK" : "DRAFT",
+    purpose: entry.purpose ?? "",
+    remarks: entry.remarks ?? "",
+    items: entry.items.length
+      ? entry.items.map(item => ({
+          item: String(item.item),
+          batch: item.batch == null ? "" : String(item.batch),
+          quantity: String(item.quantity),
+          instances: (item.instances ?? []).map(String),
+          stock_register: item.stock_register == null ? "" : String(item.stock_register),
+          page_number: item.page_number == null ? "" : String(item.page_number),
+        }))
+      : [blankItem()],
+  };
+}
+
+function entryTarget(entry: StockEntryRecord) {
+  return getStockEntryDisplayDirection(entry).target;
+}
+
+function entrySource(entry: StockEntryRecord) {
+  return getStockEntryDisplayDirection(entry).source;
+}
+
+function StockEntryModal({ open, mode, entry, refs: baseRefs, refsLoading: baseRefsLoading, assignedLocationIds, scopeStores = [], isSuperuser = false, onClose, onSave }: { open: boolean; mode: "create" | "edit"; entry: StockEntryRecord | null; refs: ReferenceData; refsLoading: boolean; assignedLocationIds?: number[]; scopeStores?: StockEntryScopeStore[]; isSuperuser?: boolean; onClose: () => void; onSave: (savedEntry: StockEntryRecord) => void | Promise<void> }) {
+  const [form, setForm] = useState<StockEntryFormState>(emptyForm);
+  const [stockRefs, setStockRefs] = useState<Pick<ReferenceData, 'items' | 'stockRecords' | 'allocations'>>({ items: [], stockRecords: [], allocations: [] });
+  const [lineRefs, setLineRefs] = useState<Pick<ReferenceData, 'batches' | 'instances'>>({ batches: [], instances: [] });
+  const [stockRefsLoading, setStockRefsLoading] = useState(false);
+  const [lineRefsLoading, setLineRefsLoading] = useState(false);
+  const refs = useMemo(() => ({ ...baseRefs, ...stockRefs, ...lineRefs }), [baseRefs, stockRefs, lineRefs]);
+  const refsLoading = baseRefsLoading || stockRefsLoading || lineRefsLoading;
+  const stockStore = form.entry_type === 'ISSUE' ? form.from_location : form.to_location;
+  const selectedItemKey = [...new Set(form.items.map(row => row.item).filter(Boolean))].sort().join(',');
+
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [transferrableStores, setTransferrableStores] = useState<LocationRecord[]>([]);
+  useEffect(() => {
+    if (!open || !stockStore) { setStockRefsLoading(false); setStockRefs({ items: [], stockRecords: [], allocations: [] }); return; }
+    let active = true;
+    setStockRefsLoading(true);
+    setStockRefs({ items: [], stockRecords: [], allocations: [] });
+    (async () => {
+      const { items, stockRecords, allocations } = await loadStoreInventory<ItemRecord>(stockStore, entry?.items.map(row => row.item));
+      if (active) setStockRefs({ items, stockRecords, allocations });
+    })().catch(error => { if (active) setSubmitError(error instanceof Error ? error.message : 'Unable to load store inventory.'); })
+      .finally(() => { if (active) setStockRefsLoading(false); });
+    return () => { active = false; };
+  }, [open, stockStore]);
+
+  useEffect(() => {
+    if (!open || !selectedItemKey) { setLineRefsLoading(false); setLineRefs({ batches: [], instances: [] }); return; }
+    let active = true;
+    setLineRefsLoading(true);
+    setLineRefs({ batches: [], instances: [] });
+    (async () => {
+      const data = await loadSelectedItemInventory<ItemBatchRecord>(selectedItemKey.split(','), form.entry_type === 'ISSUE' ? stockStore : '');
+      if (active) setLineRefs(data);
+    })().catch(error => { if (active) setSubmitError(error instanceof Error ? error.message : 'Unable to load selected item inventory.'); })
+      .finally(() => { if (active) setLineRefsLoading(false); });
+    return () => { active = false; };
+  }, [open, selectedItemKey, stockStore, form.entry_type]);
+
+  const [transferrableLoading, setTransferrableLoading] = useState(false);
+  const selectableStoreOptions = useMemo(() => getSelectableStockEntryStores({
+    assignedLocationIds,
+    locations: refs.locations,
+    scopeStores,
+    isSuperuser,
+  }), [assignedLocationIds, isSuperuser, refs.locations, scopeStores]);
+  const singleAssignedStore = mode === "create" && selectableStoreOptions.length === 1 ? selectableStoreOptions[0] : null;
+
+  useEffect(() => {
+    if (!open) return;
+    const nextForm = formFromEntry(entry, refs.locations);
+    if (mode === "create" && entry) {
+      nextForm.status = "DRAFT";
+      nextForm.remarks = `Replacement for ${entry.entry_number}`;
+      nextForm.items = nextForm.items.map(item => ({ ...item, instances: [] }));
+    }
+    setForm(nextForm);
+    setErrors({});
+    setSubmitError(null);
+    setSubmitting(false);
+  }, [entry, mode, open, refs.locations]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, open]);
+
+  useEffect(() => {
+    if (!open || !singleAssignedStore) return;
+    const storeId = String(singleAssignedStore.id);
+    setForm(prev => {
+      if (prev.entry_type === "RECEIPT" && prev.to_location !== storeId) {
+        return { ...prev, to_location: storeId, from_location: "", issued_to: "" };
+      }
+      if (prev.entry_type === "ISSUE" && prev.from_location !== storeId) {
+        return { ...prev, from_location: storeId, to_location: "", issued_to: "" };
+      }
+      return prev;
+    });
+    setErrors(prev => {
+      const next = { ...prev };
+      delete next.from_location;
+      delete next.to_location;
+      delete next.issued_to;
+      return next;
+    });
+  }, [form.entry_type, open, singleAssignedStore]);
+
+  useEffect(() => {
+    if (!open || form.entry_type !== "ISSUE" || !form.from_location) {
+      setTransferrableStores([]);
+      setTransferrableLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setTransferrableLoading(true);
+    apiFetch<LocationRecord[]>(`/api/inventory/locations/transferrable/?from_location_id=${encodeURIComponent(form.from_location)}`)
+      .then(data => {
+        if (cancelled) return;
+        setTransferrableStores(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        if (!cancelled) setTransferrableStores([]);
+      })
+      .finally(() => {
+        if (!cancelled) setTransferrableLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, form.entry_type, form.from_location]);
+
+  const issueStoreOptions = transferrableStores.filter(location => location.is_active && location.is_store);
+  const issueNonStoreOptions = getAllocatableTargetLocations(form.from_location, refs.locations);
+  const issuePersonOptions = getAllocatableTargetPersons(form.from_location, refs.locations, refs.persons);
+  const receiptNonStoreOptions = getAllocatedReturnLocations(form.to_location, refs.locations, refs.allocations);
+  const receiptPersonOptions = getAllocatedReturnPersons(form.to_location, refs.persons, refs.allocations);
+  const getReturnTargetForForm = (targetForm: StockEntryFormState): StockEntryReturnTarget =>
+    targetForm.return_source === "PERSON"
+      ? { type: "PERSON", id: targetForm.issued_to }
+      : { type: "LOCATION", id: targetForm.from_location };
+  const returnTarget = getReturnTargetForForm(form);
+  const itemContextReady = form.entry_type === "ISSUE"
+    ? Boolean(form.from_location)
+    : Boolean(form.to_location && (form.return_source === "PERSON" ? form.issued_to : form.from_location));
+  const itemContextPlaceholder = form.entry_type === "ISSUE"
+    ? "Select source store first"
+    : form.to_location
+    ? "Select return source first"
+    : "Select receiving store first";
+  const getItemOptionsForForm = (targetForm: StockEntryFormState) => targetForm.entry_type === "ISSUE"
+    ? getIssueItemOptions(targetForm.from_location, refs.items, refs.stockRecords)
+    : getReturnItemOptions(targetForm.to_location, getReturnTargetForForm(targetForm), refs.items, refs.allocations);
+  const getBatchOptionsForForm = (targetForm: StockEntryFormState, row: StockEntryFormItem) => targetForm.entry_type === "ISSUE"
+    ? getIssueBatchOptions(targetForm.from_location, row.item, refs.batches, refs.stockRecords)
+    : getReturnBatchOptions(targetForm.to_location, getReturnTargetForForm(targetForm), row.item, refs.batches, refs.allocations);
+  const getQuantityLimitForForm = (targetForm: StockEntryFormState, row: StockEntryFormItem) => targetForm.entry_type === "ISSUE"
+    ? getIssueAvailableQuantity(targetForm.from_location, row.item, row.batch, refs.stockRecords)
+    : getReturnQuantityLimit(targetForm.to_location, getReturnTargetForForm(targetForm), row.item, row.batch, refs.allocations);
+  const getInstanceOptionsForForm = (targetForm: StockEntryFormState, row: StockEntryFormItem) => targetForm.entry_type === "ISSUE"
+    ? getIssueInstanceOptions(targetForm.from_location, row.item, refs.instances)
+    : getReturnInstanceOptions(targetForm.to_location, getReturnTargetForForm(targetForm), row.item, refs.allocations, refs.instances);
+  const getItemOptions = () => getItemOptionsForForm(form);
+  const getBatchOptions = (row: StockEntryFormItem) => getBatchOptionsForForm(form, row);
+  const getQuantityLimit = (row: StockEntryFormItem) => getQuantityLimitForForm(form, row);
+  const getInstanceOptions = (row: StockEntryFormItem) => getInstanceOptionsForForm(form, row);
+  const selectedSourceStoreId = getStockEntryRegisterStoreId(form);
+  const sourceRegisterOptions = useMemo(
+    () => getStockEntrySourceRegisterOptions(form, refs.registers),
+    [form.entry_type, form.from_location, form.to_location, refs.registers],
+  );
+
+  useEffect(() => {
+    if (!open || refsLoading || refs.registers.length === 0) return;
+    setForm(prev => {
+      const nextSourceRegisterOptions = getStockEntrySourceRegisterOptions(prev, refs.registers);
+      let changed = false;
+      const items = prev.items.map(row => {
+        const nextStockRegister = resolveStockEntrySourceRegisterValue(row.stock_register, nextSourceRegisterOptions);
+        if (nextStockRegister === row.stock_register) return row;
+        changed = true;
+        return { ...row, stock_register: nextStockRegister };
+      });
+      return changed ? { ...prev, items } : prev;
+    });
+  }, [open, refs.registers, refsLoading, sourceRegisterOptions]);
+
+  const update = <K extends keyof StockEntryFormState>(key: K, value: StockEntryFormState[K]) => {
+    setForm(prev => {
+      if (key === "entry_type") {
+        if (prev.entry_type === value) return prev;
+        return { ...prev, entry_type: value as CreatableStockEntryType, from_location: "", to_location: "", issued_to: "", items: [blankItem()] };
+      }
+      if (key === "from_location" && prev.entry_type === "ISSUE") {
+        return { ...prev, from_location: value as string, to_location: "", issued_to: "", items: [blankItem()] };
+      }
+      if (key === "from_location" && prev.entry_type === "RECEIPT") {
+        return { ...prev, from_location: value as string, issued_to: "", items: [blankItem()] };
+      }
+      if (key === "to_location" && prev.entry_type === "RECEIPT") {
+        return { ...prev, to_location: value as string, from_location: "", issued_to: "", items: [blankItem()] };
+      }
+      if (key === "issue_target" || key === "return_source") {
+        return { ...prev, [key]: value, from_location: key === "return_source" ? "" : prev.from_location, to_location: key === "issue_target" ? "" : prev.to_location, issued_to: "", items: [blankItem()] };
+      }
+      if (key === "issued_to" && prev.entry_type === "RECEIPT") {
+        return { ...prev, issued_to: value as string, from_location: "", items: [blankItem()] };
+      }
+      return { ...prev, [key]: value };
+    });
+    setErrors(prev => {
+      const next = { ...prev };
+      delete next[String(key)];
+      if (key === "entry_type" || key === "from_location" || key === "to_location" || key === "issue_target" || key === "return_source") {
+        delete next.from_location;
+        delete next.to_location;
+        delete next.issued_to;
+      }
+      return next;
+    });
+  };
+
+  const updateRow = (index: number, patch: Partial<StockEntryFormItem>) => {
+    setForm(prev => ({
+      ...prev,
+      items: prev.items.map((row, rowIndex) => rowIndex === index ? { ...row, ...patch } : row),
+    }));
+    setErrors(prev => {
+      const next = { ...prev };
+      Object.keys(patch).forEach(key => delete next[`items.${index}.${key}`]);
+      return next;
+    });
+  };
+
+  const addRow = () => setForm(prev => ({ ...prev, items: [...prev.items, blankItem()] }));
+  const removeRow = (index: number) => setForm(prev => ({ ...prev, items: prev.items.length === 1 ? prev.items : prev.items.filter((_, rowIndex) => rowIndex !== index) }));
+
+  const submit = async () => {
+    const nextErrors = validateStockEntryForm(form);
+    const itemOptions = getItemOptions();
+    form.items.forEach((row, index) => {
+      if (!row.item) return;
+      const selectedItem = refs.items.find(item => String(item.id) === row.item);
+      if (!itemOptions.some(item => String(item.id) === row.item)) {
+        nextErrors[`items.${index}.item`] = form.entry_type === "ISSUE"
+          ? "This item is not available in the selected source store."
+          : "This item is not allocated to the selected return source.";
+        return;
+      }
+
+      if (isIndividualTracking(selectedItem)) {
+        const instanceOptions = getInstanceOptions(row);
+        const validInstanceIds = new Set(instanceOptions.map(instance => String(instance.id)));
+        const selectedInstanceIds = row.instances ?? [];
+        if (!selectedInstanceIds.length) {
+          nextErrors[`items.${index}.instances`] = "Select the item instances.";
+        } else if (selectedInstanceIds.some(instanceId => !validInstanceIds.has(instanceId))) {
+          nextErrors[`items.${index}.instances`] = "Selected instances are not available for this movement.";
+        } else if (selectedInstanceIds.length !== Number(row.quantity)) {
+          nextErrors[`items.${index}.quantity`] = "Quantity must match the selected instance count.";
+        }
+      } else {
+        const batchOptions = getBatchOptions(row);
+        const requiresExplicitBatch = !isQuantityTrackedItem(selectedItem);
+        if (requiresExplicitBatch && batchOptions.length > 0 && !row.batch) {
+          nextErrors[`items.${index}.batch`] = "Choose the batch.";
+        }
+        const limit = getQuantityLimit(row);
+        if (Number(row.quantity) > limit) {
+          nextErrors[`items.${index}.quantity`] = `Only ${limit} available for this selection.`;
+        }
+      }
+    });
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length) {
+      return {
+        ok: false,
+        errorType: "validation_error",
+        message: "Resolve highlighted stock-entry fields before submitting.",
+        fieldErrors: nextErrors,
+      };
+    }
+
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const payload = buildStockEntryPayload(form) as ReturnType<typeof buildStockEntryPayload> & { reference_entry?: number; reference_purpose?: string };
+      if (mode === "create" && entry) {
+        payload.reference_entry = entry.id;
+        payload.reference_purpose = "REPLACEMENT";
+      }
+      const saved = await apiFetch<StockEntryRecord>(mode === "edit" && entry ? `/api/inventory/stock-entries/${entry.id}/` : "/api/inventory/stock-entries/", {
+        method: mode === "edit" ? "PATCH" : "POST",
+        body: JSON.stringify(payload),
+      });
+      await onSave(saved);
+      onClose();
+      return {
+        ok: true,
+        message: mode === "edit" ? "Stock entry updated successfully." : "Stock entry created successfully.",
+        recordId: saved.id,
+        redirectTo: `/stock-entries/${saved.id}`,
+      };
+    } catch (err) {
+      const failure = normalizeCopilotSubmitError(err);
+      setSubmitError(failure.message || "Failed to save stock entry");
+      return failure;
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const issueLocationOptions = form.issue_target === "LOCATION" ? issueNonStoreOptions : issueStoreOptions;
+  const selectedItemIds = new Set(form.items.map(row => row.item).filter(Boolean));
+  const canSubmit = !refsLoading && !submitting;
+
+  const copilotInstanceOptions = useMemo(() => {
+    const byId = new Map<number, StockEntryItemInstance>();
+    form.items.forEach(row => {
+      getInstanceOptions(row).forEach(instance => byId.set(instance.id, instance));
+    });
+    return Array.from(byId.values()).map(instance => ({
+      value: String(instance.id),
+      label: instance.serial_number || instance.qr_code || `Instance ${instance.id}`,
+    }));
+  }, [form.items, getInstanceOptions]);
+
+  const copilotFields = useMemo<CopilotFormField[]>(() => [
+    {
+      name: "entry_type",
+      label: "Entry type",
+      type: "select",
+      required: true,
+      affects: ["issue_target", "return_source", "from_location", "to_location", "issued_to", "items"],
+      options: [
+        { value: "ISSUE", label: "Transfer / Allocation" },
+        { value: "RECEIPT", label: "Receipt / Return" },
+      ],
+    },
+    {
+      name: "issue_target",
+      label: "Issue target",
+      type: "select",
+      required: form.entry_type === "ISSUE",
+      dependsOn: ["entry_type"],
+      affects: ["to_location", "issued_to", "items"],
+      options: [
+        { value: "STORE", label: "Destination Store" },
+        { value: "LOCATION", label: "Destination Non-store" },
+        { value: "PERSON", label: "Receiving Employee" },
+      ],
+    },
+    {
+      name: "return_source",
+      label: "Return source",
+      type: "select",
+      required: form.entry_type === "RECEIPT",
+      dependsOn: ["entry_type"],
+      affects: ["from_location", "issued_to", "items"],
+      options: [
+        { value: "PERSON", label: "Returning Employee" },
+        { value: "LOCATION", label: "Returning Non-store" },
+      ],
+    },
+    {
+      name: "from_location",
+      label: form.entry_type === "ISSUE" ? "Source store" : "Returning non-store",
+      type: "select",
+      required:
+        form.entry_type === "ISSUE" ||
+        (form.entry_type === "RECEIPT" && form.return_source === "LOCATION"),
+      dependsOn: form.entry_type === "RECEIPT" ? ["entry_type", "return_source", "to_location"] : ["entry_type"],
+      affects: ["to_location", "issued_to", "items"],
+      optionSource: form.entry_type === "ISSUE" ? "stockEntry.sourceStores" : "stockEntry.returningNonStores",
+      resolver: "search_form_options",
+      options: (form.entry_type === "ISSUE" ? selectableStoreOptions : receiptNonStoreOptions)
+        .map(location => ({
+          value: String(location.id),
+          label: location.name,
+        })),
+    },
+    {
+      name: "to_location",
+      label: form.entry_type === "ISSUE" ? "Destination" : "Receiving store",
+      type: "select",
+      required:
+        (form.entry_type === "ISSUE" && form.issue_target !== "PERSON") ||
+        form.entry_type === "RECEIPT",
+      dependsOn: form.entry_type === "ISSUE" ? ["entry_type", "issue_target", "from_location"] : ["entry_type"],
+      affects: form.entry_type === "RECEIPT" ? ["from_location", "issued_to", "items"] : ["items"],
+      optionSource: form.entry_type === "ISSUE" ? "stockEntry.destinations" : "stockEntry.receivingStores",
+      optionsState:
+        form.entry_type === "ISSUE" && !form.from_location
+          ? "requires_dependency"
+          : form.entry_type === "ISSUE" && form.issue_target === "STORE" && transferrableLoading
+            ? "loading"
+            : undefined,
+      resolver: "search_form_options",
+      options: (form.entry_type === "ISSUE" ? issueLocationOptions : selectableStoreOptions)
+        .map(location => ({
+          value: String(location.id),
+          label: location.name,
+        })),
+    },
+    {
+      name: "issued_to",
+      label: form.entry_type === "ISSUE" ? "Receiving employee" : "Returning employee",
+      type: "select",
+      required:
+        (form.entry_type === "ISSUE" && form.issue_target === "PERSON") ||
+        (form.entry_type === "RECEIPT" && form.return_source === "PERSON"),
+      dependsOn: form.entry_type === "ISSUE" ? ["entry_type", "issue_target", "from_location"] : ["entry_type", "return_source", "to_location"],
+      affects: form.entry_type === "RECEIPT" ? ["items"] : [],
+      optionSource: form.entry_type === "ISSUE" ? "stockEntry.receivingPersons" : "stockEntry.returningPersons",
+      optionsState:
+        form.entry_type === "ISSUE" && form.issue_target === "PERSON" && !form.from_location
+          ? "requires_dependency"
+          : form.entry_type === "RECEIPT" && form.return_source === "PERSON" && !form.to_location
+            ? "requires_dependency"
+            : undefined,
+      resolver: "search_form_options",
+      options: (form.entry_type === "ISSUE" ? issuePersonOptions : receiptPersonOptions)
+        .map(person => ({
+          value: String(person.id),
+          label: person.name,
+        })),
+    },
+    { name: "purpose", label: "Purpose", type: "string" },
+    { name: "remarks", label: "Remarks", type: "string" },
+    {
+      name: "items",
+      label: "Line items",
+      type: "array",
+      required: true,
+      dependsOn: form.entry_type === "ISSUE"
+        ? ["from_location"]
+        : ["to_location", form.return_source === "PERSON" ? "issued_to" : "from_location"],
+      optionSource: "stockEntry.lineItems",
+      resolver: "search_form_options",
+      arrayItemFields: [
+        {
+          name: "item",
+          label: "Item",
+          type: "select",
+          required: true,
+          dependsOn: form.entry_type === "ISSUE"
+            ? ["from_location"]
+            : ["to_location", form.return_source === "PERSON" ? "issued_to" : "from_location"],
+          affects: ["items[].batch", "items[].instances", "items[].quantity"],
+          optionSource: "stockEntry.availableItems",
+          optionsState: itemContextReady ? undefined : "requires_dependency",
+          resolver: "search_form_options",
+          options: getItemOptions().map(item => ({
+            value: String(item.id),
+            label: `${item.name}${item.code ? ` (${item.code})` : ""}`,
+          })),
+        },
+        ...(form.entry_type === "RECEIPT" ? [{
+          name: "batch",
+          label: "Batch",
+          type: "select" as const,
+          dependsOn: ["items[].item"],
+          optionSource: "stockEntry.availableBatches",
+          resolver: "search_form_options",
+          options: refs.batches.map(batch => ({
+            value: String(batch.id),
+            label: batch.batch_number,
+          })),
+        }] : []),
+        { name: "quantity", label: "Quantity", type: "number", required: true },
+        {
+          name: "instances",
+          label: "Instance IDs",
+          type: "array",
+          arrayItemType: "string",
+          dependsOn: form.entry_type === "ISSUE"
+            ? ["from_location", "items[].item"]
+            : ["to_location", form.return_source === "PERSON" ? "issued_to" : "from_location", "items[].item"],
+          optionSource: "stockEntry.availableInstances",
+          resolver: "search_form_options",
+          options: copilotInstanceOptions,
+          description:
+            "For individual-tracked items, provide selected instance option values. Use stock_entry_form_reference.line_item_options[index].instance_options for the current row.",
+        },
+        {
+          name: "stock_register",
+          label: "Source register",
+          type: "select",
+          dependsOn: ["from_location"],
+          optionSource: "stockEntry.sourceRegisters",
+          optionsState: selectedSourceStoreId ? undefined : "requires_dependency",
+          resolver: "search_form_options",
+          options: sourceRegisterOptions.map(register => ({
+            value: String(register.id),
+            label: register.register_number,
+          })),
+        },
+        { name: "page_number", label: "Page number", type: "number" },
+      ],
+    },
+  ], [
+    form.entry_type,
+    form.issue_target,
+    form.return_source,
+    copilotInstanceOptions,
+    getItemOptions,
+    issueLocationOptions,
+    issuePersonOptions,
+    itemContextReady,
+    receiptNonStoreOptions,
+    receiptPersonOptions,
+    refs.batches,
+    selectableStoreOptions,
+    selectedSourceStoreId,
+    sourceRegisterOptions,
+    transferrableLoading,
+  ]);
+
+  const copilotFormId = mode === "edit" && entry ? `stock-entry-edit-${entry.id}` : "stock-entry-create";
+  const buildStockEntryReferenceForForm = useCallback((targetForm: StockEntryFormState) => {
+    const targetIssueNonStoreOptions = getAllocatableTargetLocations(targetForm.from_location, refs.locations);
+    const targetIssuePersonOptions = getAllocatableTargetPersons(targetForm.from_location, refs.locations, refs.persons);
+    const targetReceiptNonStoreOptions = getAllocatedReturnLocations(targetForm.to_location, refs.locations, refs.allocations);
+    const targetReceiptPersonOptions = getAllocatedReturnPersons(targetForm.to_location, refs.persons, refs.allocations);
+    const targetSourceRegisterOptions = getStockEntrySourceRegisterOptions(targetForm, refs.registers);
+
+    return buildStockEntryCopilotReferenceContext({
+      formId: copilotFormId,
+      active: open,
+      form: targetForm,
+      sourceStores: selectableStoreOptions,
+      destinationStores: issueStoreOptions,
+      destinationLocations: targetIssueNonStoreOptions,
+      receivingPersons: targetIssuePersonOptions,
+      returningPersons: targetReceiptPersonOptions,
+      returningLocations: targetReceiptNonStoreOptions,
+      sourceRegisters: targetSourceRegisterOptions,
+      lineItems: targetForm.items.map((row, index) => ({
+        index,
+        itemOptions: getItemOptionsForForm(targetForm),
+        batchOptions: getBatchOptionsForForm(targetForm, row),
+        instanceOptions: getInstanceOptionsForForm(targetForm, row),
+      })),
+    });
+  }, [
+    copilotFormId,
+    issueStoreOptions,
+    open,
+    refs.allocations,
+    refs.batches,
+    refs.instances,
+    refs.items,
+    refs.locations,
+    refs.persons,
+    refs.registers,
+    refs.stockRecords,
+    selectableStoreOptions,
+  ]);
+  const stockEntryFormReference = useMemo(
+    () => buildStockEntryReferenceForForm(form),
+    [buildStockEntryReferenceForForm, form],
+  );
+
+  useCopilotReadable({
+    description: open
+      ? "Stock entry form reference data. Use this for valid movement modes, store/employee/non-store choices, row-specific stock registers, batches, and item instances before calling set_form_values."
+      : "Stock entry form reference data is available when the create/edit modal is open.",
+    value: stockEntryFormReference,
+  });
+
+  const validateForCopilot = useCallback(() => {
+    const nextErrors = validateStockEntryForm(form);
+    setErrors(nextErrors);
+    return {
+      ok: Object.keys(nextErrors).length === 0,
+      errors: nextErrors,
+    };
+  }, [form]);
+
+  const { submitManually } = useCopilotForm({
+    formId: copilotFormId,
+    title: mode === "edit" ? "Edit Stock Entry" : entry ? "Create Replacement Stock Entry" : "Create Stock Entry",
+    description: "Create or edit a stock movement entry on the Stock Entries page.",
+    mode,
+    active: open,
+    fields: copilotFields,
+    values: form as unknown as Record<string, unknown>,
+    errors,
+    canSetValues: !submitting && !refsLoading,
+    canValidate: true,
+    canSubmit,
+    requirements: {
+      setValues: { requiredCapabilities: [{ module: "stock-entries", level: "manage" }] },
+      validate: { requiredCapabilities: [{ module: "stock-entries", level: "manage" }] },
+      submit: { requiredCapabilities: [{ module: "stock-entries", level: "manage" }] },
+    },
+    setValues: values => {
+      const patch = applyStockEntryCopilotValuePatch(form, values);
+      setForm(patch.nextForm);
+      return { applied: patch.applied, ignored: patch.ignored };
+    },
+    searchOptions: request => {
+      const projectedForm = request.currentValues && typeof request.currentValues === "object"
+        ? applyStockEntryCopilotValuePatch(form, request.currentValues).nextForm
+        : form;
+      return searchStockEntryCopilotOptions(
+        buildStockEntryReferenceForForm(projectedForm),
+        request,
+      );
+    },
+    validate: validateForCopilot,
+    submit: () => submit(),
+  });
+
+  if (!open) return null;
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
+      <div className="modal modal-lg" role="dialog" aria-modal="true" aria-labelledby="stock-entry-modal-title">
+        <div className="modal-head">
+          <div>
+            <h2 id="stock-entry-modal-title">{mode === "edit" ? "Edit Stock Entry" : entry ? "Create Replacement Entry" : "Create Stock Entry"}</h2>
+          </div>
+          <button type="button" className="modal-close" onClick={onClose} aria-label="Close stock entry modal">×</button>
+        </div>
+
+        <div className="modal-body">
+          {submitError && (
+            <Alert
+              title="Couldn't save the stock entry"
+              onDismiss={() => setSubmitError(null)}
+            >
+              {submitError}
+            </Alert>
+          )}
+          {refsLoading && <div style={{ padding: 16, color: "var(--muted)", fontSize: 13 }}>Loading dropdown data…</div>}
+          {mode === "create" && !isSuperuser && !refsLoading && selectableStoreOptions.length === 0 && (
+            <Alert variant="warning" title="Store assignment required">
+              Your account isn't directly assigned to a store yet. Ask an administrator to assign you to a source store before creating stock entries here.
+            </Alert>
+          )}
+
+          <Section n={1} title="Movement" sub={form.entry_type === "ISSUE" ? "Choose the store sending stock, then choose who or where receives it." : "Choose the store receiving returned stock, then choose who or where it is returning from."}>
+            <div className="form-grid cols-2">
+              <Field label="Entry Type" required>
+                <ThemedSelect
+                  value={form.entry_type}
+                  onChange={value => update("entry_type", value as CreatableStockEntryType)}
+                  options={[
+                    { value: "ISSUE", label: "Transfer / Allocation" },
+                    { value: "RECEIPT", label: "Return Receipt" },
+                  ]}
+                  ariaLabel="Select stock entry type"
+                />
+              </Field>
+              {form.entry_type === "ISSUE" ? (
+                <>
+                  <Field label="Issue To" required>
+                    <div className="seg seg-inline">
+                      {(["STORE", "LOCATION", "PERSON"] as const).map(option => (
+                        <button key={option} type="button" className={"seg-btn" + (form.issue_target === option ? " active" : "")} onClick={() => update("issue_target", option)}>{option === "LOCATION" ? "Non-store" : formatLabel(option)}</button>
+                      ))}
+                    </div>
+                  </Field>
+                  <Field label="Source Store" required error={errors.from_location} hint="Only stores can send stock.">
+                    <SearchableSelect
+                      value={form.from_location}
+                      options={selectableStoreOptions.map(locationOption)}
+                      onChange={value => update("from_location", value)}
+                      placeholder="Select source store"
+                      searchPlaceholder="Search source stores..."
+                      emptyLabel="No source stores available"
+                      disabled={Boolean(singleAssignedStore)}
+                    />
+                  </Field>
+                  {form.issue_target === "PERSON" ? (
+                    <Field label="Receiving Employee" required error={errors.issued_to}>
+                      <SearchableSelect
+                        value={form.issued_to}
+                        options={issuePersonOptions.map(personOption)}
+                        onChange={value => update("issued_to", value)}
+                        placeholder={form.from_location ? "Select employee" : "Select source store first"}
+                        searchPlaceholder="Search employees..."
+                        emptyLabel="No employees available in this store scope"
+                        disabled={!form.from_location}
+                      />
+                    </Field>
+                  ) : (
+                    <Field label={form.issue_target === "LOCATION" ? "Destination Non-store" : "Destination Store"} required error={errors.to_location}>
+                      <SearchableSelect
+                        value={form.to_location}
+                        options={issueLocationOptions.map(locationOption)}
+                        onChange={value => update("to_location", value)}
+                        placeholder={form.from_location ? "Select destination" : "Select source store first"}
+                        searchPlaceholder="Search destinations..."
+                        emptyLabel="No destinations available for this source store"
+                        disabled={!form.from_location}
+                      />
+                    </Field>
+                  )}
+                </>
+              ) : (
+                <>
+                  <Field label="Return From" required>
+                    <div className="seg seg-inline">
+                      {(["PERSON", "LOCATION"] as const).map(option => (
+                        <button key={option} type="button" className={"seg-btn" + (form.return_source === option ? " active" : "")} onClick={() => update("return_source", option)}>{option === "LOCATION" ? "Non-store" : "Employee"}</button>
+                      ))}
+                    </div>
+                  </Field>
+                  <Field label="Receiving Store" required error={errors.to_location} hint={singleAssignedStore ? "The only store assigned to this account is selected automatically." : "Returned stock is received back into this store."}>
+                    <SearchableSelect
+                      value={form.to_location}
+                      options={selectableStoreOptions.map(locationOption)}
+                      onChange={value => update("to_location", value)}
+                      placeholder="Select receiving store"
+                      searchPlaceholder="Search receiving stores..."
+                      emptyLabel="No receiving stores available"
+                      disabled={Boolean(singleAssignedStore)}
+                    />
+                  </Field>
+                  {form.return_source === "PERSON" ? (
+                    <Field label="Returning Employee" required error={errors.issued_to}>
+                      <SearchableSelect
+                        value={form.issued_to}
+                        options={receiptPersonOptions.map(personOption)}
+                        onChange={value => update("issued_to", value)}
+                        placeholder={form.to_location ? "Select employee" : "Select receiving store first"}
+                        searchPlaceholder="Search employees with active allocations..."
+                        emptyLabel="No active employee allocations from this store"
+                        disabled={!form.to_location}
+                      />
+                    </Field>
+                  ) : (
+                    <Field label="Returning Non-store" required error={errors.from_location}>
+                      <SearchableSelect
+                        value={form.from_location}
+                        options={receiptNonStoreOptions.map(locationOption)}
+                        onChange={value => update("from_location", value)}
+                        placeholder={form.to_location ? "Select non-store location" : "Select receiving store first"}
+                        searchPlaceholder="Search non-stores with active allocations..."
+                        emptyLabel="No active non-store allocations from this store"
+                        disabled={!form.to_location}
+                      />
+                    </Field>
+                  )}
+                </>
+              )}
+              <Field label="Purpose" span={2}>
+                <input className="input" value={form.purpose} onChange={event => update("purpose", event.target.value)} placeholder="Lab allocation, inter-store transfer, inspection receipt…" />
+              </Field>
+              <Field label="Remarks" span={2}>
+                <textarea className="textarea-field" value={form.remarks} onChange={event => update("remarks", event.target.value)} placeholder="Optional movement notes" rows={3} />
+              </Field>
+            </div>
+          </Section>
+
+          <Section n={2} title="Line Items">
+            <div style={{ display: "grid", gap: 12 }}>
+              {form.items.map((row, index) => {
+                const itemOptions = getItemOptions();
+                const selectedItem = refs.items.find(item => String(item.id) === row.item);
+                const rowBatchOptions = getBatchOptions(row);
+                const rowInstanceOptions = getInstanceOptions(row);
+                const rowQuantityLimit = isIndividualTracking(selectedItem) ? rowInstanceOptions.length : getQuantityLimit(row);
+                const itemDisabled = !itemContextReady;
+                const individual = isIndividualTracking(selectedItem);
+                const autoResolveBatch = isQuantityTrackedItem(selectedItem);
+                const duplicate = row.item && selectedItemIds.has(row.item) && form.items.filter(item => item.item === row.item).length > 1;
+                return (
+                  <div key={index} style={{ border: "1px solid var(--hairline)", borderRadius: "var(--radius)", padding: 12, background: "var(--surface-2)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                      <div className="eyebrow">Item {index + 1}{duplicate ? " · Duplicate item" : ""}</div>
+                      <Button type="button" variant="ghost" size="xs" onClick={() => removeRow(index)} disabled={form.items.length === 1}>Remove</Button>
+                    </div>
+                    <div className="form-grid cols-2">
+                      <Field label="Item" required error={errors[`items.${index}.item`]}>
+                        <SearchableSelect
+                          value={row.item}
+                          options={itemOptions.map(item => ({
+                            value: String(item.id),
+                            label: item.name,
+                            meta: [item.code, item.tracking_type ? formatLabel(item.tracking_type) : null].filter(Boolean).join(" - "),
+                          }))}
+                          onChange={value => updateRow(index, { item: value, batch: "", quantity: "1", instances: [] })}
+                          placeholder={itemDisabled ? itemContextPlaceholder : "Select item"}
+                          searchPlaceholder="Search available items..."
+                          emptyLabel={itemDisabled ? itemContextPlaceholder : "No matching stock is available"}
+                          disabled={itemDisabled}
+                        />
+                      </Field>
+                      {individual ? (
+                        <Field label="Instances" required error={errors[`items.${index}.instances`]} hint={row.item ? `${rowInstanceOptions.length} instance${rowInstanceOptions.length === 1 ? "" : "s"} available for this movement.` : "Select an individual-tracked item first."}>
+                          <InstanceMultiSelect
+                            value={row.instances ?? []}
+                            options={rowInstanceOptions.map(instanceOption)}
+                            onChange={values => updateRow(index, {
+                              instances: values,
+                              quantity: String(Math.max(1, values.length)),
+                              batch: "",
+                            })}
+                            placeholder={row.item ? "Select instances" : "Select item first"}
+                            searchPlaceholder="Search instance number..."
+                            emptyLabel="No instances available for this selection"
+                            disabled={!row.item}
+                          />
+                        </Field>
+                      ) : (
+                        !autoResolveBatch && (
+                          <Field label="Batch" error={errors[`items.${index}.batch`]} hint={selectedItem?.tracking_type ? `Tracking: ${formatLabel(selectedItem.tracking_type)}` : undefined}>
+                            <SearchableSelect
+                              value={row.batch}
+                              options={rowBatchOptions.map(batch => ({
+                                value: String(batch.id),
+                                label: batch.batch_number,
+                                meta: selectedItem?.code,
+                              }))}
+                              onChange={value => updateRow(index, { batch: value })}
+                              placeholder={row.item ? "Select batch" : "Select item first"}
+                              searchPlaceholder="Search batches..."
+                              emptyLabel="No available batches for this item"
+                              disabled={!row.item || rowBatchOptions.length === 0}
+                            />
+                          </Field>
+                        )
+                      )}
+                      <Field label={individual ? "Quantity / Auto Select" : "Quantity"} required error={errors[`items.${index}.quantity`]} hint={row.item ? `Limit: ${rowQuantityLimit}` : undefined}>
+                        <input
+                          className="input"
+                          type="number"
+                          min="1"
+                          max={rowQuantityLimit || undefined}
+                          value={row.quantity}
+                          onChange={event => {
+                            const value = event.target.value;
+                            if (individual) {
+                              const count = Math.max(0, Number(value) || 0);
+                              const selectedInstances = rowInstanceOptions.slice(0, count).map(instance => String(instance.id));
+                              updateRow(index, {
+                                quantity: value,
+                                instances: selectedInstances,
+                                batch: "",
+                              });
+                              return;
+                            }
+                            updateRow(index, { quantity: value });
+                          }}
+                          disabled={!row.item}
+                        />
+                      </Field>
+                      <Field label="Source Register">
+                        <ThemedSelect
+                          value={row.stock_register}
+                          onChange={value => updateRow(index, { stock_register: value })}
+                          disabled={!selectedSourceStoreId || sourceRegisterOptions.length === 0}
+                          options={sourceRegisterOptions.map(register => ({ value: String(register.id), label: register.register_number, meta: register.store_name ?? undefined }))}
+                          ariaLabel="Select source register"
+                        />
+                      </Field>
+                      <Field label="Page Number">
+                        <input className="input" type="number" min="1" value={row.page_number} onChange={event => updateRow(index, { page_number: event.target.value })} placeholder="Optional" />
+                      </Field>
+                    </div>
+                  </div>
+                );
+              })}
+              <Button type="button" variant="ghost" size="sm" onClick={addRow}>
+                <Ic d="M12 5v14M5 12h14" size={14} /> Add line item
+              </Button>
+            </div>
+          </Section>
+        </div>
+
+        <div className="modal-foot">
+          <div className="modal-foot-actions">
+            <Button type="button" variant="ghost" onClick={onClose} disabled={submitting}>Cancel</Button>
+            <Button type="button"  onClick={() => { void submitManually("submit"); }} disabled={!canSubmit}>{submitting ? "Saving…" : mode === "edit" ? "Save Changes" : "Create Entry"}</Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RowActions({ entry, acknowledgeEntry, canEdit, canDelete, pageBusy, deleteBusy, ackBusy, onEdit, onDelete, onAcknowledge }: { entry: StockEntryRecord; acknowledgeEntry?: StockEntryRecord | null; canEdit: boolean; canDelete: boolean; pageBusy: boolean; deleteBusy: boolean; ackBusy: boolean; onEdit: () => void; onDelete: () => void; onAcknowledge: (entry: StockEntryRecord) => void }) {
+  const ackTarget = getStockEntryAcknowledgeTarget(entry, acknowledgeEntry ?? null);
+  const showAcknowledge = Boolean(ackTarget.can_acknowledge) && ackTarget.status === "PENDING_ACK";
+  const showEdit = canEdit && entry.status === "DRAFT";
+  const showDelete = canDelete && entry.can_delete !== false && entry.status === "DRAFT";
+  if (!showAcknowledge && !showEdit && !showDelete) return <span className="muted-note mono">No actions</span>;
+  return (
+    <div className="row-actions">
+      {showAcknowledge && <Button type="button" size="xs" className="row-action ack-action" onClick={event => { event.stopPropagation(); onAcknowledge(ackTarget); }} disabled={pageBusy}><Ic d="M20 6L9 17l-5-5" size={13} /><span className="ra-label">{ackBusy ? "Acknowledging…" : "Acknowledge"}</span></Button>}
+      {showEdit && <Button type="button" variant="ghost" size="xs" className="row-action" onClick={event => { event.stopPropagation(); onEdit(); }} disabled={pageBusy}><Ic d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" size={13} /><span className="ra-label">Edit</span></Button>}
+      {showDelete && <Button type="button" variant="outline" size="xs" className="btn-danger-ghost row-action" onClick={event => { event.stopPropagation(); onDelete(); }} disabled={pageBusy}><Ic d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0l1 12h6l1-12" size={13} /><span className="ra-label">{deleteBusy ? "Deleting…" : "Delete"}</span></Button>}
+    </div>
+  );
+}
+
+export function StockEntriesView() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const { user } = useAuth();
+  const { isLoading: capsLoading } = useCapabilities();
+  const canView = useCan("stock-entries");
+  const canManage = useCan("stock-entries", "manage");
+  const canDelete = useCan("stock-entries", "full");
+
+  const [entries, setEntries] = useState<StockEntryRecord[]>([]);
+  const [page, setPage] = useState(1);
+  const [entryCount, setEntryCount] = useState(0);
+  const entriesRequestRef = useRef(0);
+
+  const [refs, setRefs] = useState<ReferenceData>({ items: [], batches: [], locations: [], persons: [], registers: [], allocations: [], stockRecords: [], instances: [] });
+  const [isLoading, setIsLoading] = useState(true);
+  const [refsLoading, setRefsLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [search, setSearch] = useState(() => searchParams.get("search") ?? "");
+  const [statusFilter, setStatusFilter] = useState(() => {
+    const statusParam = searchParams.get("status");
+    return statusParam && ["DRAFT", "PENDING_ACK", "COMPLETED", "CANCELLED", "VOIDED"].includes(statusParam) ? statusParam : "all";
+  });
+  const [storeScope, setStoreScope] = useState(() => searchParams.get("store") ?? "all");
+  const [density, setDensity] = useState<Density>("balanced");
+  const [mode, setMode] = useState<"table" | "grid">("table");
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<"create" | "edit">("create");
+  const [editingEntry, setEditingEntry] = useState<StockEntryRecord | null>(null);
+  const [busyAction, setBusyAction] = useState<{ kind: "delete" | "acknowledge"; entryId: number } | null>(null);
+  const [scopeStores, setScopeStores] = useState<StockEntryScopeStore[]>([]);
+  const refsLoadedRef = useRef(false);
+  const refsPromiseRef = useRef<Promise<boolean> | null>(null);
+  const replacementOpenedRef = useRef<string | null>(null);
+
+  const loadRefs = useCallback(async () => {
+    if (!canManage) return true;
+    if (refsLoadedRef.current) return true;
+    if (refsPromiseRef.current) return refsPromiseRef.current;
+    setRefsLoading(true);
+    const promise = (async () => {
+      try {
+        const [locationsData, personsData, registersData] = await Promise.all([
+          fetchAllPages<LocationRecord>("/api/inventory/locations/?page_size=500"),
+          fetchAllPages<PersonRecord>("/api/inventory/persons/?page_size=500"),
+          fetchAllPages<StockRegisterRecord>("/api/inventory/stock-registers/?page_size=500"),
+        ]);
+        setRefs({ items: [], batches: [], locations: locationsData, persons: personsData, registers: registersData, allocations: [], stockRecords: [], instances: [] });
+        refsLoadedRef.current = true;
+        return true;
+      } catch (err) {
+        setFetchError(err instanceof Error ? err.message : "Failed to load stock entry dropdown data");
+        refsLoadedRef.current = false;
+        return false;
+      } finally {
+        refsPromiseRef.current = null;
+        setRefsLoading(false);
+      }
+    })();
+    refsPromiseRef.current = promise;
+    return promise;
+  }, [canManage]);
+
+  const loadEntries = useCallback(async ({ showLoading = true }: { showLoading?: boolean } = {}) => {
+    if (showLoading) setIsLoading(true);
+    setFetchError(null);
+    const generation = ++entriesRequestRef.current;
+    try {
+      const data = await loadMovementPage<StockEntryRecord>({ page, search, status: statusFilter, store: storeScope });
+      if (generation !== entriesRequestRef.current) return true;
+      setEntries(data.results);
+      setEntryCount(data.count);
+      return true;
+    } catch (err) {
+      if (generation === entriesRequestRef.current) setFetchError(err instanceof Error ? err.message : "Failed to load stock entries");
+      return false;
+    } finally {
+      if (generation === entriesRequestRef.current) setIsLoading(false);
+    }
+  }, [page, search, statusFilter, storeScope]);
+
+  const loadScopeStores = useCallback(async () => {
+    try {
+      const data = await apiFetch<StockEntryScopeStore[]>("/api/inventory/stock-entries/scope-stores/");
+      setScopeStores(data);
+    } catch {
+      setScopeStores([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (capsLoading) return;
+    if (!canView) {
+      router.replace("/403");
+      return;
+    }
+    loadEntries();
+    loadScopeStores();
+  }, [canView, capsLoading, loadEntries, loadScopeStores, router]);
+
+  useEffect(() => {
+    const statusParam = searchParams.get("status");
+    if (statusParam && ["DRAFT", "PENDING_ACK", "COMPLETED", "CANCELLED", "VOIDED"].includes(statusParam)) {
+      setStatusFilter(statusParam);
+    } else {
+      setStatusFilter("all");
+    }
+
+    setSearch(searchParams.get("search") ?? "");
+    setStoreScope(searchParams.get("store") ?? "all");
+
+    const replacementFor = searchParams.get("replacement_for");
+    if (!replacementFor || !canManage || isLoading || replacementOpenedRef.current === replacementFor) return;
+    replacementOpenedRef.current = replacementFor;
+    const source = entries.find(entry => String(entry.id) === replacementFor);
+    void (async () => {
+      try {
+        const replacementSource = source ?? await apiFetch<StockEntryRecord>(`/api/inventory/stock-entries/${encodeURIComponent(replacementFor)}/`);
+        setModalMode("create");
+        setEditingEntry(replacementSource);
+        setModalOpen(true);
+        void loadRefs();
+        router.replace("/stock-entries");
+      } catch (error) {
+        setFetchError(error instanceof Error ? error.message : "Unable to load correction source.");
+        replacementOpenedRef.current = null;
+      }
+    })();
+  }, [canManage, entries, isLoading, loadRefs, router, searchParams]);
+
+  const movementEntries = useMemo(() => getStockEntryMovementRows(entries), [entries]);
+
+  const filteredEntries = movementEntries;
+  const pagedEntries = movementEntries;
+  const totalPages = Math.max(1, Math.ceil(entryCount / STOCK_ENTRIES_PAGE_SIZE));
+  const pageStart = entryCount ? (page - 1) * STOCK_ENTRIES_PAGE_SIZE + 1 : 0;
+  const pageEnd = Math.min(entryCount, pageStart + pagedEntries.length - 1);
+  useEffect(() => { setPage(1); }, [search, statusFilter, storeScope]);
+  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
+
+  const stockEntryListControls = useCopilotListControls({
+    entity: "stock_entry",
+    filters: [
+      {
+        name: "search",
+        type: "string",
+        defaultValue: "",
+        label: "Search",
+        description: "Search by entry number, item, location, employee, purpose, or remarks.",
+        setValue: value => setSearch(String(value ?? "")),
+      },
+      {
+        name: "status",
+        type: "enum",
+        defaultValue: "all",
+        label: "Status",
+        options: [
+          { value: "all", label: "All statuses" },
+          { value: "DRAFT", label: "Draft" },
+          { value: "PENDING_ACK", label: "Pending Ack" },
+          { value: "COMPLETED", label: "Completed" },
+          { value: "CANCELLED", label: "Cancelled" },
+          { value: "VOIDED", label: "Voided" },
+        ],
+        setValue: value => setStatusFilter(String(value ?? "all")),
+      },
+      {
+        name: "store",
+        type: "enum",
+        defaultValue: "all",
+        label: "Assigned store",
+        options: [
+          { value: "all", label: "All stores" },
+          ...scopeStores.map(store => ({ value: String(store.id), label: store.name })),
+        ],
+        setValue: value => setStoreScope(String(value ?? "all")),
+      },
+    ],
+    page,
+    totalPages,
+    setPage,
+    visibleRows: pagedEntries.map(({ entry }, index) => ({
+      row_number: index + 1,
+      id: entry.id,
+      detail_route: `/stock-entries/${entry.id}`,
+    })),
+  });
+
+  const openCreateModal = useCallback(async () => {
+    setModalMode("create");
+    setEditingEntry(null);
+    setModalOpen(true);
+    void loadRefs();
+  }, [loadRefs]);
+  const openEditModal = useCallback(async (entry: StockEntryRecord) => {
+    setModalMode("edit");
+    setEditingEntry(entry);
+    setModalOpen(true);
+    void loadRefs();
+  }, [loadRefs]);
+  const closeModal = useCallback(() => {
+    setModalOpen(false);
+    setModalMode("create");
+    setEditingEntry(null);
+  }, []);
+
+  const stockEntriesListReadable = useMemo(() => buildCopilotListContext({
+    route: "/stock-entries",
+    entity: "stock_entry",
+    total: entryCount,
+    filteredTotal: entryCount,
+    filters: {
+      search: search || null,
+      status: statusFilter,
+      store: storeScope,
+    },
+    pagination: { page, pageSize: STOCK_ENTRIES_PAGE_SIZE, totalPages },
+    rows: pagedEntries.map(({ entry, receipt, actionEntry }) => ({
+      id: entry.id,
+      entry_number: entry.entry_number,
+      hidden_receipt_id: receipt?.id ?? null,
+      hidden_receipt_number: receipt?.entry_number ?? null,
+      movement_type: entry.entry_type === "ISSUE" && receipt ? "TRANSFER" : entry.entry_type,
+      entry_date: entry.entry_date,
+      from_location: entry.from_location,
+      from_location_name: entry.from_location_name ?? null,
+      to_location: entry.to_location,
+      to_location_name: entry.to_location_name ?? null,
+      issued_to: entry.issued_to,
+      issued_to_name: entry.issued_to_name ?? null,
+      status: getStockEntryMovementStatus(entry, receipt),
+      purpose: entry.purpose ?? null,
+      item_count: entry.items.length,
+      items: entry.items.slice(0, 5).map(item => ({
+        item: item.item,
+        item_name: item.item_name ?? null,
+        quantity: item.quantity,
+        stock_register: item.stock_register,
+        stock_register_name: item.stock_register_name ?? null,
+        page_number: item.page_number,
+      })),
+      detail_route: `/stock-entries/${entry.id}`,
+      available_actions: {
+        open_detail: true,
+        edit: canManage && entry.status === "DRAFT",
+        delete: canDelete && entry.can_delete !== false && entry.status === "DRAFT",
+        acknowledge: Boolean(actionEntry.can_acknowledge) && actionEntry.status === "PENDING_ACK",
+      },
+    })),
+    actions: {
+      ...stockEntryListControls,
+      create_stock_entry: canManage,
+    },
+    loading: isLoading || capsLoading || refsLoading,
+    extra: {
+      scope_stores: scopeStores.map(store => ({
+        id: store.id,
+        name: store.name,
+        code: store.code ?? null,
+        is_central: store.is_central ?? null,
+      })),
+    },
+  }), [
+    canDelete,
+    canManage,
+    capsLoading,
+    filteredEntries.length,
+    isLoading,
+    entryCount,
+    page,
+    pagedEntries,
+    refsLoading,
+    scopeStores,
+    search,
+    statusFilter,
+    storeScope,
+    stockEntryListControls,
+    totalPages,
+  ]);
+
+  useCopilotReadable({
+    description:
+      "Stock entries displayed after filters/pagination. Use visible_rows to resolve entry numbers, movement type, status, locations, and item summaries without SQL. Use get_app_map to discover the create form before filling a new stock movement.",
+    value: stockEntriesListReadable,
+  });
+
+  useCopilotAction({
+    name: "open_create_stock_entry_form",
+    description:
+      "Open the Create Stock Entry modal on the Stock Entries page before filling a new stock movement.",
+    parameters: {},
+    allowed: canManage,
+    enabled: true,
+    requiredCapabilities: [{ module: "stock-entries", level: "manage" }],
+    handler: async () => {
+      await openCreateModal();
+      return { ok: true };
+    },
+  });
+
+  useEffect(() => {
+    if (consumePendingOpen("stock_entry_create") && canManage) {
+      void openCreateModal();
+    }
+  }, [canManage, openCreateModal]);
+
+  useEffect(() => {
+    const onOpen = (event: Event) => {
+      const detail = (event as CustomEvent<{ formId?: string }>).detail;
+      if (detail?.formId !== "stock_entry_create") return;
+      if (!canManage) return;
+      void openCreateModal();
+    };
+    window.addEventListener(SAME_PAGE_OPEN_EVENT, onOpen);
+    return () => window.removeEventListener(SAME_PAGE_OPEN_EVENT, onOpen);
+  }, [canManage, openCreateModal]);
+
+  const handleSave = async (savedEntry: StockEntryRecord) => {
+    setEntries(prev => [
+      savedEntry,
+      ...prev.filter(entry => entry.id !== savedEntry.id),
+    ]);
+    setSearch("");
+    setStatusFilter("all");
+    setStoreScope("all");
+    const refreshed = await loadEntries({ showLoading: false });
+    if (!refreshed) setActionError("Stock entry saved, but the list could not be refreshed. Reload to resync the table.");
+  };
+
+  const handleDelete = async (entry: StockEntryRecord) => {
+    if (!canDelete || busyAction) return;
+    if (entry.can_delete === false) {
+      setActionError(entry.delete_blockers?.join(" ") || "This stock entry cannot be deleted because it is linked to existing records.");
+      return;
+    }
+    const confirmed = window.confirm(`Delete draft ${entry.entry_number}? This cannot be undone.`);
+    if (!confirmed) return;
+    setBusyAction({ kind: "delete", entryId: entry.id });
+    setActionError(null);
+    try {
+      await apiFetch(`/api/inventory/stock-entries/${entry.id}/`, { method: "DELETE" });
+      setEntries(prev => prev.filter(record => record.id !== entry.id));
+      const refreshed = await loadEntries({ showLoading: false });
+      if (!refreshed) setActionError("Stock entry deleted, but the list could not be refreshed. Reload to resync.");
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to delete stock entry");
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleAcknowledge = async (entry: StockEntryRecord) => {
+    if (!entry.can_acknowledge || busyAction) return;
+    const confirmed = window.confirm(`Acknowledge receipt ${entry.entry_number}? This will complete the stock movement.`);
+    if (!confirmed) return;
+    setBusyAction({ kind: "acknowledge", entryId: entry.id });
+    setActionError(null);
+    try {
+      await apiFetch(`/api/inventory/stock-entries/${entry.id}/acknowledge/`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      const refreshed = await loadEntries({ showLoading: false });
+      if (!refreshed) setActionError("Entry acknowledged, but the list could not be refreshed. Reload to resync.");
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to acknowledge stock entry");
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const pageBusy = busyAction !== null;
+  const deleteBusyId = busyAction?.kind === "delete" ? busyAction.entryId : null;
+  const ackBusyId = busyAction?.kind === "acknowledge" ? busyAction.entryId : null;
+
+  return (
+    <div data-density={density}>
+      <StockEntryModal open={modalOpen} mode={modalMode} entry={editingEntry} refs={refs} refsLoading={refsLoading} assignedLocationIds={user?.assigned_locations} scopeStores={scopeStores} isSuperuser={user?.is_superuser} onClose={closeModal} onSave={handleSave} />
+      <Topbar breadcrumb={["Operations", "Stock Entries"]} />
+      <div className="page">
+        {fetchError && (
+          <Alert
+            title="Couldn't load stock entries"
+            action={
+              <Button
+                type="button"
+                variant="outline" size="xs"
+                onClick={() => { loadEntries(); loadRefs(); }}
+              >
+                Retry
+              </Button>
+            }
+            onDismiss={() => setFetchError(null)}
+          >
+            {fetchError}
+          </Alert>
+        )}
+        {actionError && (
+          <Alert title="Action failed" onDismiss={() => setActionError(null)}>
+            {actionError}
+          </Alert>
+        )}
+
+        <div className="page-head">
+          <div className="page-title-group">
+            <h1>Stock Entries</h1>
+          </div>
+        </div>
+
+        <div className="filter-bar">
+          <div className="filter-bar-left">
+            <div className="search-input">
+              <Ic d={<><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></>} size={14} />
+              <input placeholder="Search entry number, item, location, employee, or purpose…" value={search} onChange={event => setSearch(event.target.value)} />
+              {search && <button type="button" className="clear-search" onClick={() => setSearch("")}>×</button>}
+            </div>
+            <div className="filter-select-group">
+              <div className="chip-filter-label">Status</div>
+              <div className="filter-select-wrap">
+                <ThemedSelect
+                  value={statusFilter}
+                  onChange={setStatusFilter}
+                  size="compact"
+                  ariaLabel="Filter stock entries by status"
+                  options={[
+                    { value: "all", label: "All statuses" },
+                    { value: "DRAFT", label: "Draft" },
+                    { value: "PENDING_ACK", label: "Pending Ack" },
+                    { value: "COMPLETED", label: "Completed" },
+                    { value: "CANCELLED", label: "Cancelled" },
+                    { value: "VOIDED", label: "Voided" },
+                  ]}
+                />
+              </div>
+            </div>
+            {scopeStores.length > 0 ? (
+              <div className="filter-select-group">
+                <div className="chip-filter-label">Store</div>
+                <div className="filter-select-wrap">
+                  <ThemedSelect
+                    value={storeScope}
+                    onChange={setStoreScope}
+                    size="compact"
+                    ariaLabel="Filter stock entries by assigned store"
+                    options={[
+                      { value: "all", label: "All stores" },
+                      ...scopeStores.map(store => ({
+                        value: String(store.id),
+                        label: store.name,
+                        meta: [store.code, store.is_central ? "Central Store" : null].filter(Boolean).join(" - "),
+                      })),
+                    ]}
+                  />
+                </div>
+              </div>
+            ) : null}
+          </div>
+          <div className="filter-bar-right">
+            <DensityToggle density={density} setDensity={setDensity} />
+            <div className="seg" title="View mode">
+              <button type="button" className={"seg-btn icon-only" + (mode === "table" ? " active" : "")} onClick={() => setMode("table")} title="Table"><Ic d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" size={14} /></button>
+              <button type="button" className={"seg-btn icon-only" + (mode === "grid" ? " active" : "")} onClick={() => setMode("grid")} title="Grid"><Ic d={<><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /></>} size={14} /></button>
+            </div>
+            {canManage && <Button type="button" size="sm" onClick={openCreateModal} disabled={pageBusy}><Ic d="M12 5v14M5 12h14" size={14} /> New Entry</Button>}
+          </div>
+        </div>
+
+        {mode === "table" ? (
+          <div className="table-card">
+            <div className="table-card-head">
+              <div className="table-card-head-left">
+                <div className="eyebrow">Stock movement ledger</div>
+                <div className="table-count"><span className="mono">{entryCount}</span><span>entries</span></div>
+              </div>
+            </div>
+            {isLoading ? <div style={{ padding: 32, textAlign: "center", color: "var(--muted)", borderTop: "1px solid var(--hairline)" }}>Loading stock entries…</div> : (
+              <div className="h-scroll">
+                <table className="data-table">
+                  <thead><tr><th>Entry</th><th>Source</th><th>Destination</th><th>Items</th><th>Status</th><th>Created</th><th>Updated</th></tr></thead>
+                  <tbody>
+                    {filteredEntries.length === 0 ? <tr><td colSpan={7}><div style={{ padding: "32px 12px", textAlign: "center", color: "var(--text-2)", fontSize: 13 }}>No stock entries match the current filters.</div></td></tr> : pagedEntries.map(row => {
+                      const updatedEntry = getStockEntryMovementUpdatedEntry(row.entry, row.receipt);
+                      return (
+                        <tr key={row.entry.id} onClick={() => router.push(`/stock-entries/${row.entry.id}`)} style={{ cursor: "pointer" }}>
+                          <td><div className="user-cell"><div><div className="user-name">{row.entry.entry_number}</div><div className="user-username mono">{formatDate(row.entry.entry_date)}</div></div></div></td>
+                          <td>{entrySource(row.entry)}</td>
+                          <td>{entryTarget(row.entry)}</td>
+                          <td><div className="group-cell">{row.entry.items.slice(0, 2).map(item => <span key={`${row.entry.id}-${item.id ?? item.item}`} className="chip">{item.item_name ?? `Item ${item.item}`} × {item.quantity}</span>)}{row.entry.items.length > 2 && <span className="muted-note mono">+{row.entry.items.length - 2} more</span>}</div></td>
+                          <td>
+                            <div className="group-cell">
+                              <StatusPill status={getStockEntryMovementStatus(row.entry, row.receipt) as EntryStatus} />
+                              <CorrectionPill entry={row.entry} />
+                            </div>
+                          </td>
+                          <td><div className="login-cell"><div>{relTime(row.entry.created_at)}</div><div className="login-cell-sub mono">{row.entry.created_by_name ?? "Unknown"}</div></div></td>
+                          <td><div className="login-cell"><div>{relTime(updatedEntry.updated_at ?? updatedEntry.created_at)}</div><div className="login-cell-sub mono">{updatedEntry.last_updated_by_name ?? updatedEntry.created_by_name ?? "Unknown"}</div></div></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <ListPagination
+              summary={filteredEntries.length === 0 ? "Showing 0 stock entries" : `Showing ${pageStart}-${pageEnd} of ${entryCount} stock entries`}
+              page={page}
+              totalPages={totalPages}
+              onPrev={() => setPage(current => Math.max(1, current - 1))}
+              onNext={() => setPage(current => Math.min(totalPages, current + 1))}
+            />
+          </div>
+        ) : filteredEntries.length > 0 ? (
+          <div className="users-grid">
+            {pagedEntries.map(row => (
+              <div className="user-card" key={row.entry.id} onClick={() => router.push(`/stock-entries/${row.entry.id}`)} style={{ cursor: "pointer" }}>
+                <div className="user-card-head">
+                  <div className="group-cell" style={{ justifyContent: "flex-end" }}>
+                    <StatusPill status={getStockEntryMovementStatus(row.entry, row.receipt) as EntryStatus} />
+                    <CorrectionPill entry={row.entry} />
+                  </div>
+                </div>
+                <div className="user-card-name">{row.entry.entry_number}</div>
+                <div className="user-card-meta mono">{formatDate(row.entry.entry_date)}</div>
+                <div className="user-card-section"><div className="eyebrow">Movement</div><div style={{ fontSize: 13, color: "var(--text-1)" }}>{entrySource(row.entry)} → {entryTarget(row.entry)}</div></div>
+                <div className="user-card-section"><div className="eyebrow">Line Items</div><div className="group-cell">{row.entry.items.slice(0, 3).map(item => <span key={`${row.entry.id}-card-${item.id ?? item.item}`} className="chip">{item.item_name ?? `Item ${item.item}`} × {item.quantity}</span>)}</div></div>
+                <div className="user-card-foot"><div><div className="eyebrow">Updated</div><div className="user-card-last mono">{relTime(getStockEntryMovementUpdatedEntry(row.entry, row.receipt).updated_at ?? row.entry.created_at)}</div></div><RowActions entry={row.entry} acknowledgeEntry={row.receipt} canEdit={canManage} canDelete={canDelete} pageBusy={pageBusy} deleteBusy={deleteBusyId === row.entry.id} ackBusy={ackBusyId === row.actionEntry.id} onEdit={() => openEditModal(row.entry)} onDelete={() => handleDelete(row.entry)} onAcknowledge={handleAcknowledge} /></div>
+              </div>
+            ))}
+          </div>
+        ) : <div className="table-card"><div style={{ padding: 24, textAlign: "center", color: "var(--muted)" }}>No stock entries match the current filters.</div></div>}
+        {mode === "grid" && filteredEntries.length > 0 ? (
+          <ListPagination
+            summary={`Showing ${pageStart}-${pageEnd} of ${entryCount} stock entries`}
+            page={page}
+            totalPages={totalPages}
+            onPrev={() => setPage(current => Math.max(1, current - 1))}
+            onNext={() => setPage(current => Math.min(totalPages, current + 1))}
+            standalone
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
