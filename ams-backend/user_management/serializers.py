@@ -270,7 +270,11 @@ class UserManagementSerializer(serializers.ModelSerializer):
         # Profile is created by signal, so we update it
         profile = user.profile
         if 'employee_id' in profile_data:
-            profile.employee_id = profile_data['employee_id']
+            # Only honor a non-empty admin-provided id; blank -> let
+            # UserProfile.save() auto-generate the next EMP-#### sequence.
+            incoming_eid = profile_data['employee_id']
+            if incoming_eid:
+                profile.employee_id = incoming_eid
         if 'avatar' in profile_data:
             profile.avatar = profile_data['avatar']
         if 'ai_enabled' in profile_data:
@@ -421,7 +425,14 @@ class UserManagementSerializer(serializers.ModelSerializer):
         # Update Profile fields
         profile = instance.profile
         if 'employee_id' in profile_data:
-            profile.employee_id = profile_data['employee_id']
+            # Non-empty values are admin overrides and win. Blank values do
+            # NOT clear an already-assigned id (would regenerate a new one on
+            # save() and change a visible operational identifier); they only
+            # take effect when no id has been assigned yet, in which case
+            # save() will auto-generate the next EMP-#### sequence.
+            incoming_eid = profile_data['employee_id']
+            if incoming_eid:
+                profile.employee_id = incoming_eid
         if 'avatar' in profile_data:
             profile.avatar = profile_data['avatar']
         if 'ai_enabled' in profile_data:
@@ -493,11 +504,11 @@ class RegisterSerializer(serializers.ModelSerializer):
 class GroupSerializer(serializers.ModelSerializer):
     """Role serializer backed by the capability manifest.
 
-    Input (preferred): `module_selections` — a dict like
+    Input (preferred): `module_selections`, a dict like
         {"users": "manage", "roles": "view"}
     which is resolved via apply_module_selections() into the underlying perms.
 
-    Input (fallback, legacy / superuser escape hatch): `permissions` — a flat
+    Input (fallback, legacy / superuser escape hatch): `permissions`, a flat
     list of Permission IDs. Kept so raw assignment still works from the Django
     admin and tests.
 

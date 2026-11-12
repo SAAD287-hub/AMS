@@ -7,7 +7,7 @@
  * use `parseNotificationEvent` to get a typed envelope, while callers that
  * only need to display the title/message read the raw record directly.
  *
- * Backend rollout is gradual — `suggested_intent` and `intent_target` are
+ * Backend rollout is gradual, so `suggested_intent` and `intent_target` are
  * optional. If the backend hasn't started emitting them yet, the parser
  * returns `null` and the agent integration falls back to generic prompting.
  */
@@ -18,31 +18,31 @@ import type { NotificationFeedItem } from "@/contexts/NotificationsContext";
  * Canonical event kinds. Add new kinds here as the backend emits them. When
  * an unknown kind arrives at runtime, the parser maps it to `"unknown"` so
  * downstream code can decide whether to drop the event or surface it
- * generically — neither path crashes.
+ * generically, and neither path crashes.
  */
 // Kept in lockstep with the backend's NotificationEvent.kind values. See
-// ams-backend/notifications/services.py — every notify_* helper there must
+// ams-backend/notifications/services.py, where every notify_* helper there must
 // have a corresponding entry here (otherwise the parser maps it to
 // "unknown" and the proactive dispatcher drops it as not-actionable).
 export const NOTIFICATION_KINDS = [
-  // Inspection workflow — emitted by notify_inspection_*.
+  // Inspection workflow, emitted by notify_inspection_*.
   "inspection.initiated",
   "inspection.submitted_to_central_register",
   "inspection.submitted_to_finance_review",
   "inspection.completed",
   "inspection.rejected",
-  // Stock movement — emitted by notify_stock_entry_*.
+  // Stock movement, emitted by notify_stock_entry_*.
   "stock_entry.pending_ack",
   "stock_entry.acknowledged",
-  // Stock corrections — emitted by notify_correction_*.
+  // Stock corrections, emitted by notify_correction_*.
   "stock_correction.requested",
   "stock_correction.approved",
   "stock_correction.rejected",
   "stock_correction.applied",
-  // Stock registers — emitted by notify_stock_register_*.
+  // Stock registers, emitted by notify_stock_register_*.
   "stock_register.closed",
   "stock_register.reopened",
-  // Depreciation — emitted by notify_depreciation_* and notify_fixed_asset_*.
+  // Depreciation, emitted by notify_depreciation_* and notify_fixed_asset_*.
   "depreciation.run_created",
   "depreciation.run_posted",
   "depreciation.run_reversed",
@@ -56,11 +56,11 @@ const KNOWN_KINDS = new Set<string>(NOTIFICATION_KINDS);
 
 /**
  * The agent uses `suggested_intent` to decide what to *offer* the user when
- * a proactive event arrives — without it, the agent has only the event
+ * a proactive event arrives, and without it, the agent has only the event
  * title/message and tends to produce a generic "want help?" card.
  *
  * Each intent maps to a small family of orchestrator behaviours described in
- * the agent prompt. Intents are deliberately coarse — the orchestrator does
+ * the agent prompt. Intents are deliberately coarse, and the orchestrator does
  * the fine-grained routing using `intent_target`.
  */
 export const SUGGESTED_INTENTS = [
@@ -129,7 +129,7 @@ function sanitizeIntentTarget(value: unknown): IntentTarget | null {
     module: readString(source.module),
     route: readString(source.route),
   };
-  // Drop the object if every field is missing — saves consumers from null
+  // Drop the object if every field is missing, which saves consumers from null
   // checks on every field. An empty target carries no signal.
   const hasAny = Object.values(target).some(field => field !== undefined);
   return hasAny ? target : null;
@@ -147,7 +147,7 @@ function parseIntent(raw: unknown): SuggestedIntent | null {
 }
 
 /**
- * Lift a raw feed item to a typed envelope. Never throws — unknown values
+ * Lift a raw feed item to a typed envelope. Never throws, since unknown values
  * are normalized to safe defaults. Use this whenever you need to *act* on
  * the event (route, dispatch, agent prompt) rather than just display it.
  *

@@ -1,4 +1,4 @@
-/* Item Detail — Dashboard Redesign v2
+/* Item Detail -Dashboard Redesign v2
    Single-scroll dashboard with stock health hero, inline
    distribution, and collapsible accordion sections.
    Uses existing design tokens only. */
@@ -1869,46 +1869,46 @@ button.distributionDataRow[data-selected="true"] {
   flex-shrink: 0;
 }
 
-/* Tracking — soft pill, outlined */
+/* Tracking -soft pill, outlined */
 .trackingBadge {
   background: transparent;
   border: 1px solid var(--border);
   color: var(--ink-2);
 }
 .trackingBadge[data-tone="individual"] {
-  background: color-mix(in oklch, var(--tracking-individual) 8%, white);
-  border-color: color-mix(in oklch, var(--tracking-individual) 28%, transparent);
-  color: color-mix(in oklch, var(--tracking-individual) 72%, var(--ink));
+  background: color-mix(in oklch, var(--tracking-individual) 12%, var(--card));
+  border-color: color-mix(in oklch, var(--tracking-individual) 32%, transparent);
+  color: color-mix(in oklch, var(--tracking-individual) 78%, var(--ink));
 }
 .trackingBadge[data-tone="quantity"] {
-  background: color-mix(in oklch, var(--primary) 7%, white);
-  border-color: color-mix(in oklch, var(--primary) 22%, transparent);
-  color: color-mix(in oklch, var(--primary) 78%, var(--ink));
+  background: color-mix(in oklch, var(--primary) 12%, var(--card));
+  border-color: color-mix(in oklch, var(--primary) 28%, transparent);
+  color: color-mix(in oklch, var(--primary) 82%, var(--ink));
 }
 .trackingBadge[data-tone="perishable"] {
-  background: color-mix(in oklch, var(--warn) 12%, white);
-  border-color: color-mix(in oklch, var(--warn) 28%, transparent);
-  color: color-mix(in oklch, var(--warn) 65%, var(--ink));
+  background: color-mix(in oklch, var(--warn) 14%, var(--card));
+  border-color: color-mix(in oklch, var(--warn) 30%, transparent);
+  color: color-mix(in oklch, var(--warn) 78%, var(--ink));
 }
 
-/* Status — filled, more saturated than tracking */
+/* Status -filled, more saturated than tracking */
 .statusBadge {
   border: 1px solid transparent;
 }
 .statusBadge[data-tone="ok"] {
-  background: color-mix(in oklch, var(--success) 16%, white);
-  border-color: color-mix(in oklch, var(--success) 34%, transparent);
-  color: color-mix(in oklch, var(--success) 72%, var(--ink));
+  background: color-mix(in oklch, var(--success) 18%, var(--card));
+  border-color: color-mix(in oklch, var(--success) 36%, transparent);
+  color: color-mix(in oklch, var(--success) 82%, var(--ink));
 }
 .statusBadge[data-tone="warn"] {
-  background: color-mix(in oklch, var(--warn) 18%, white);
+  background: color-mix(in oklch, var(--warn) 18%, var(--card));
   border-color: color-mix(in oklch, var(--warn) 36%, transparent);
-  color: color-mix(in oklch, var(--warn) 68%, var(--ink));
+  color: color-mix(in oklch, var(--warn) 78%, var(--ink));
 }
 .statusBadge[data-tone="danger"] {
-  background: color-mix(in oklch, var(--danger) 16%, white);
-  border-color: color-mix(in oklch, var(--danger) 34%, transparent);
-  color: color-mix(in oklch, var(--danger) 76%, var(--ink));
+  background: color-mix(in oklch, var(--danger) 18%, var(--card));
+  border-color: color-mix(in oklch, var(--danger) 36%, transparent);
+  color: color-mix(in oklch, var(--danger) 82%, var(--ink));
 }
 
 /* ---------- Distribution segmented BarList ---------- */

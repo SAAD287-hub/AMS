@@ -40,7 +40,7 @@ class NotificationEvent(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.module}:{self.kind} — {self.title}"
+        return f"{self.module}:{self.kind} - {self.title}"
 
 
 class UserNotification(models.Model):
@@ -65,4 +65,4 @@ class UserNotification(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.user.username} — {self.event.title}"
+        return f"{self.user.username} - {self.event.title}"

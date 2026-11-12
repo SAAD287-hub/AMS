@@ -207,12 +207,12 @@ class ItemViewSet(viewsets.ModelViewSet):
     # the agent calls search_form_options for items.N.item on a Central
     # Register form. Human-facing dropdowns continue to hit the standard
     # `list` endpoint with `?search=...` which performs the existing keyword
-    # filter — no behaviour change there.
+    # filter, no behaviour change there.
     @action(
         detail=False,
         methods=['post'],
         url_path='copilot-search',
-        # POST here is "search-as-RPC" not "create-an-item" — view permission
+        # POST here is "search-as-RPC" not "create-an-item", so view permission
         # is the right gate. The agent-only call surface still requires the
         # signed-in user to have at least view_items.
         permission_classes=[permissions.IsAuthenticated, ItemCopilotSearchPermission],
@@ -221,7 +221,7 @@ class ItemViewSet(viewsets.ModelViewSet):
         payload = request.data or {}
 
         if not item_search.is_supported():
-            # Feature flag off or DB is not Postgres — caller should fall
+            # Feature flag off or DB is not Postgres, so caller should fall
             # back to the keyword resolver.
             return Response(
                 {

@@ -14,7 +14,7 @@ import {
   normalizeSelectionsForInspectionStages,
   type ModuleSelections,
 } from "@/lib/rolePermissionDependencies";
-import { relTime } from "@/lib/userUiShared";
+import { relTime, formatListSummary } from "@/lib/userUiShared";
 import { useCapabilities, type CapabilityLevel, type ModuleDependencies } from "@/contexts/CapabilitiesContext";
 import { Button } from "@/components/ui/button";
 
@@ -35,10 +35,10 @@ interface PermissionDetail {
 }
 
 const INSPECTION_STAGE_LABELS: Record<string, string> = {
-  initiate_inspection: "Stage 1 — Initiate",
-  fill_stock_details: "Stage 2 — Stock Details",
-  fill_central_register: "Stage 3 — Central Register",
-  review_finance: "Stage 4 — Finance Review (University-wide)",
+  initiate_inspection: "Stage 1 - Initiate",
+  fill_stock_details: "Stage 2 - Stock Details",
+  fill_central_register: "Stage 3 - Central Register",
+  review_finance: "Stage 4 - Finance Review (University-wide)",
 };
 
 interface Role {
@@ -91,6 +91,64 @@ const LEVEL_COLUMNS: Array<{
   { key: "view", label: "View", cellLabel: "View", description: "Read-only access" },
   { key: "manage", label: "Manage", cellLabel: "Create and edit", description: "Create and edit" },
   { key: "full", label: "Full", cellLabel: "Create, edit, and delete", description: "Create, edit, and delete" },
+];
+
+type RolePreset = {
+  key: string;
+  name: string;
+  description: string;
+  selections: Record<string, CapabilityLevel | null>;
+};
+
+const ROLE_PRESETS: RolePreset[] = [
+  {
+    key: "lab-assistant",
+    name: "Lab Assistant",
+    description: "Can acknowledge incoming stock at their lab and view items/locations. No admin or delete rights.",
+    selections: {
+      users: null, roles: null,
+      locations: "view", categories: "view", items: "view",
+      "stock-entries": "manage", "stock-registers": "view",
+      employees: "view", reports: "view",
+      inspections: null, depreciation: null, maintenance: null, audit: null,
+    },
+  },
+  {
+    key: "store-keeper",
+    name: "Store Keeper",
+    description: "Runs day-to-day store operations: create stock entries, manage items and batches, keep registers.",
+    selections: {
+      users: null, roles: null,
+      locations: "view", categories: "view", items: "manage",
+      "stock-entries": "manage", "stock-registers": "manage",
+      employees: "view", reports: "view",
+      inspections: "view", depreciation: null, maintenance: "view", audit: null,
+    },
+  },
+  {
+    key: "department-admin",
+    name: "Department Admin",
+    description: "Full inventory control within their department: items, categories, stock, inspections, maintenance.",
+    selections: {
+      users: null, roles: null,
+      locations: "view", categories: "manage", items: "full",
+      "stock-entries": "full", "stock-registers": "manage",
+      employees: "manage", reports: "view",
+      inspections: "manage", depreciation: "view", maintenance: "manage", audit: null,
+    },
+  },
+  {
+    key: "auditor",
+    name: "Auditor (read-only)",
+    description: "View-only access to everything inventory-related. No edits anywhere. Ideal for internal audit.",
+    selections: {
+      users: null, roles: null,
+      locations: "view", categories: "view", items: "view",
+      "stock-entries": "view", "stock-registers": "view",
+      employees: "view", reports: "view",
+      inspections: "view", depreciation: "view", maintenance: "view", audit: "view",
+    },
+  },
 ];
 
 const LOCK_ICON_PATH = "M7 11V8a5 5 0 0 1 10 0v3M6 11h12v9H6z";
@@ -265,13 +323,13 @@ function RoleActions({
     <div className="row-actions">
       {canEdit && (
         <Button type="button" variant="ghost" size="xs" className="row-action" onClick={onEdit} title="Edit role" disabled={disabled}>
-          <Ic d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" size={13} />
+          <Ic d="M12 20h9 M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" size={13} />
           <span className="ra-label">Edit</span>
         </Button>
       )}
       {canDelete && (
         <Button type="button" variant="outline" size="xs" className="btn-danger-ghost row-action" onClick={onDelete} title="Delete role" disabled={disabled}>
-          <Ic d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0l1 12h6l1-12" size={13} />
+          <Ic d="M3 6h18 M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6 M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2 M10 11v6 M14 11v6" size={13} />
           <span className="ra-label">Delete</span>
         </Button>
       )}
@@ -384,6 +442,22 @@ function RoleModal({
       ? "Permission editing is unavailable for your account."
       : "Creating a name-only role.";
 
+  const applyPreset = (preset: RolePreset) => {
+    if (!name.trim()) setName(preset.name);
+    setSelections(prev => {
+      const next: ModuleSelections = { ...prev };
+      Object.keys(manifest).forEach(moduleKey => {
+        const desired = preset.selections[moduleKey] ?? null;
+        const availableLevels = manifest[moduleKey] ?? [];
+        next[moduleKey] = desired && availableLevels.includes(desired) ? desired : null;
+      });
+      return normalizeSelectionsForInspectionStages(
+        normalizeSelectionsForDependencies(next, dependencies),
+        inspectionStages,
+      );
+    });
+  };
+
   const setModuleLevel = (module: string, level: CapabilityLevel | null) => {
     setSelections(prev => normalizeSelectionsForInspectionStages(
       normalizeSelectionsForDependencies(
@@ -439,16 +513,44 @@ function RoleModal({
 
   return (
     <div className="modal-backdrop">
-      <div className="modal modal-lg">
+      <div className="modal modal-lg role-form-modal">
         <div className="modal-head">
           <div>
             <h2>{mode === "edit" ? "Edit Role" : "Create Role"}</h2>
+            <div className="role-form-subtitle">Define what this role can do across the platform. Permissions can be refined later.</div>
           </div>
           <button type="button" className="modal-close" onClick={onClose} aria-label="Close modal">
             <Ic d="M18 6L6 18M6 6l12 12" size={14} />
           </button>
         </div>
-        <div className="modal-body">
+        <div className="modal-body role-form">
+          <div className="stock-entry-help" style={{ margin: "20px 28px 0" }}>
+            <div className="stock-entry-help-title">How roles work</div>
+            <div className="stock-entry-help-body">
+              A role is a named set of permissions that you later assign to users. Each module (Items, Locations, Stock Entries, etc.) can be set to <strong>No access</strong>, <strong>View</strong>, <strong>Create and edit</strong>, or <strong>Create, edit, and delete</strong>. Some modules unlock reads on others automatically. For example, giving &quot;User management&quot; also grants &quot;Locations&quot; read access.
+            </div>
+          </div>
+          {canAssignPermissions && mode === "create" ? (
+            <div className="role-preset-row">
+              <div className="role-preset-head">
+                <span className="eyebrow">Start from a preset</span>
+                <span className="role-preset-hint">Common templates for a university inventory system. Pick one, then tweak individual modules below.</span>
+              </div>
+              <div className="role-preset-grid">
+                {ROLE_PRESETS.map(preset => (
+                  <button
+                    key={preset.key}
+                    type="button"
+                    className="role-preset-card"
+                    onClick={() => applyPreset(preset)}
+                  >
+                    <span className="role-preset-name">{preset.name}</span>
+                    <span className="role-preset-desc">{preset.description}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
           <Section n={1} title="Role Details">
             <Field label="Role name" required error={nameError ?? undefined}>
               <input value={name} onChange={e => setName(e.target.value)} onBlur={() => setTouched(true)} placeholder="Enter role name" />
@@ -538,7 +640,7 @@ function RoleModal({
                                       </label>
                                     ) : (
                                       <div className="module-access-option unavailable" aria-hidden="true">
-                                        <span className="module-access-option-na">—</span>
+                                        <span className="module-access-option-na">-</span>
                                       </div>
                                     )}
                                   </td>
@@ -739,11 +841,17 @@ export default function RolesPage() {
 
         <div className="filter-bar">
           <div className="filter-bar-left">
-            <div className="search-input">
+            <label className="search-input">
               <Ic d={<><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></>} size={14} />
-              <input placeholder="Search roles or module assignments…" value={search} onChange={e => setSearch(e.target.value)} />
-              {search && <button type="button" className="clear-search" onClick={() => setSearch("")}>×</button>}
-            </div>
+              <input
+                placeholder="Search roles or module assignments…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                onClick={e => { if (!e.currentTarget.value) e.currentTarget.setSelectionRange(0, 0); }}
+                onFocus={e => { if (!e.currentTarget.value) e.currentTarget.setSelectionRange(0, 0); }}
+              />
+              {search && <button type="button" className="clear-search" onClick={e => { e.preventDefault(); setSearch(""); }}>×</button>}
+            </label>
           </div>
           <div className="filter-bar-right">
             <DensityToggle density={density} setDensity={setDensity} />
@@ -805,7 +913,7 @@ export default function RolesPage() {
                         <td className="mono">{role.user_count ?? 0}</td>
                         <td className="mono">{permissionCount}</td>
                         <td><ModuleSelectionSummary selections={selections} /></td>
-                        <td><TimestampCell value={role.created_at} fallback="—" subtitle={role.created_by_name ? `by ${role.created_by_name}` : null} /></td>
+                        <td><TimestampCell value={role.created_at} fallback="-" subtitle={role.created_by_name ? `by ${role.created_by_name}` : null} /></td>
                         <td className="col-actions">
                           <RoleActions
                             onEdit={() => { if (canChangeRole) setEditingRole(role); }}
@@ -828,7 +936,7 @@ export default function RolesPage() {
               </table>
             </div>
             <ListPagination
-              summary={filteredRoleItems.length === 0 ? `Showing 0 of ${roles.length} roles` : `Showing ${pageStart}-${pageEnd} of ${filteredRoleItems.length} filtered roles`}
+              summary={formatListSummary(filteredRoleItems.length, pageStart, pageEnd, "role", "roles")}
               page={page}
               totalPages={totalPages}
               onPrev={() => setPage(current => Math.max(1, current - 1))}
@@ -869,7 +977,7 @@ export default function RolesPage() {
                     <div className="user-card-foot">
                       <div>
                         <div className="eyebrow">Created At</div>
-                        <TimestampCell value={role.created_at} fallback="—" subtitle={role.created_by_name ? `by ${role.created_by_name}` : null} />
+                        <TimestampCell value={role.created_at} fallback="-" subtitle={role.created_by_name ? `by ${role.created_by_name}` : null} />
                       </div>
                       <RoleActions
                         onEdit={() => { if (canChangeRole) setEditingRole(role); }}
@@ -884,7 +992,7 @@ export default function RolesPage() {
               })}
             </div>
             <ListPagination
-              summary={`Showing ${pageStart}-${pageEnd} of ${filteredRoleItems.length} filtered roles`}
+              summary={formatListSummary(filteredRoleItems.length, pageStart, pageEnd, "role", "roles")}
               page={page}
               totalPages={totalPages}
               onPrev={() => setPage(current => Math.max(1, current - 1))}

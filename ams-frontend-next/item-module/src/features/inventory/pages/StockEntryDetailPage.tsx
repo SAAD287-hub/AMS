@@ -109,12 +109,12 @@ export default function StockEntryDetailPage() {
   const isCompleted = entry.status === "COMPLETED";
 
   const originName = isReceiptSide 
-    ? (entry.issuedToName || entry.fromLocationName || "—") 
-    : (entry.fromLocationName || "—");
+    ? (entry.issuedToName || entry.fromLocationName || "-") 
+    : (entry.fromLocationName || "-");
 
   const recipientName = isReceiptSide
-    ? (entry.toLocationName || "—")
-    : (entry.issuedToName || entry.toLocationName || "—");
+    ? (entry.toLocationName || "-")
+    : (entry.issuedToName || entry.toLocationName || "-");
 
   const originSubtitle = isReceiptSide && entry.issuedToName 
     ? "Individual" 
@@ -128,7 +128,7 @@ export default function StockEntryDetailPage() {
       ? "Individual" 
       : entry.toLocationName 
         ? "Store / Location" 
-        : "—";
+        : "-";
 
   const tableColumns = isIssue
     ? ["No.", "Item", "Qty", "Issue Register", "Page"]
@@ -345,13 +345,13 @@ export default function StockEntryDetailPage() {
                     {/* Issue / Receipt Register */}
                     <td className="py-4 pr-4">
                       <p className="text-sm font-bold text-foreground whitespace-nowrap">
-                        {isIssue ? (item.stockRegisterName ?? "—") : (item.ackStockRegisterName ?? item.stockRegisterName ?? "—")}
+                        {isIssue ? (item.stockRegisterName ?? "-") : (item.ackStockRegisterName ?? item.stockRegisterName ?? "-")}
                       </p>
                     </td>
 
                     {/* Issue / Receipt Page */}
                     <td className="py-4 pr-4">
-                      <p className="text-sm font-bold text-foreground">{isIssue ? (item.pageNumber ?? "—") : (item.ackPageNumber ?? item.pageNumber ?? "—")}</p>
+                      <p className="text-sm font-bold text-foreground">{isIssue ? (item.pageNumber ?? "-") : (item.ackPageNumber ?? item.pageNumber ?? "-")}</p>
                     </td>
 
 

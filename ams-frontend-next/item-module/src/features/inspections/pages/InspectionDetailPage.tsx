@@ -147,7 +147,7 @@ function WorkflowTracker({
 // DETAIL ITEM
 // ─────────────────────────────────────────────
 function formatDetailValue(value: unknown): React.ReactNode {
-  if (value === null || value === undefined || value === "") return "—";
+  if (value === null || value === undefined || value === "") return "-";
   if (typeof value === "string" || typeof value === "number") return value;
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (value instanceof Date) return value.toLocaleString();
@@ -608,7 +608,7 @@ export default function InspectionDetailPage() {
                 <p className="text-[10px] text-muted-foreground font-medium">
                   {currentStageIndex >= 0
                     ? `Stage ${currentStageIndex + 1} of ${STAGES_LIST.length} in the inspection lifecycle`
-                    : "Draft — pending initiation"}
+                    : "Draft - pending initiation"}
                 </p>
               </div>
             </div>

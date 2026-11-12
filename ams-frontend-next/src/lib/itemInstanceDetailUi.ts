@@ -33,9 +33,9 @@ export function buildInstanceTitle({
   total,
 }: InstanceTitleInput) {
   const cleanSerial = serialNumber?.trim();
-  if (cleanSerial) return `${itemName} — ${cleanSerial}`;
-  if (position && total) return `${itemName} — unit #${position} of ${total}`;
-  return `${itemName} — instance #${instanceId}`;
+  if (cleanSerial) return `${itemName} - ${cleanSerial}`;
+  if (position && total) return `${itemName} - unit #${position} of ${total}`;
+  return `${itemName} - instance #${instanceId}`;
 }
 
 export function getPrimaryInstanceIdentifier({

@@ -1,8 +1,8 @@
 """
-Hybrid copilot item search — schema additions.
+Hybrid copilot item search - schema additions.
 
 Adds (both Postgres and SQLite):
-  - search_text          (tsvector on Postgres, text on SQLite — unused there)
+  - search_text          (tsvector on Postgres, text on SQLite, unused there)
   - embedded_text_hash   (varchar)
 
 Adds (Postgres only, via vendor-gated RunPython):
@@ -11,7 +11,7 @@ Adds (Postgres only, via vendor-gated RunPython):
   - GIN index on search_text
   - HNSW index on embedding
 
-The embedding column is intentionally NOT declared as a Django ORM field —
+The embedding column is intentionally NOT declared as a Django ORM field, since
 that would force every INSERT to bind it and break on SQLite where the
 column does not exist. The signal and backfill command write to it via raw
 SQL after gating on connection.vendor.
@@ -29,10 +29,10 @@ def _create_postgres_objects(apps, schema_editor):
 
     dim = int(getattr(settings, 'EMBEDDING_DIM', 1536))
     with schema_editor.connection.cursor() as cursor:
-        # Extension first — required for the vector type to resolve.
+        # Extension first: required for the vector type to resolve.
         cursor.execute('CREATE EXTENSION IF NOT EXISTS vector')
 
-        # Embedding column — skip if it somehow already exists.
+        # Embedding column: skip if it somehow already exists.
         cursor.execute("""
             SELECT 1 FROM information_schema.columns
             WHERE table_name = 'inventory_item' AND column_name = 'embedding'
@@ -58,7 +58,7 @@ def _create_postgres_objects(apps, schema_editor):
 
 
 def _drop_postgres_objects(apps, schema_editor):
-    """Reverse — drop indexes and the embedding column. Leave the extension alone."""
+    """Reverse: drop indexes and the embedding column. Leave the extension alone."""
     if schema_editor.connection.vendor != 'postgresql':
         return
     with schema_editor.connection.cursor() as cursor:
@@ -75,7 +75,7 @@ class Migration(migrations.Migration):
 
     operations = [
         # These two field adds work on both Postgres and SQLite.
-        # SearchVectorField degrades to a text column on SQLite — harmless.
+        # SearchVectorField degrades to a text column on SQLite, harmless.
         migrations.AddField(
             model_name='item',
             name='search_text',

@@ -20,7 +20,7 @@ from .serializers import (
 )
 
 # Fields a non-admin is allowed to change on their OWN record via the
-# /api/users/management/ self-edit path. Keep this set tight — adding a
+# /api/users/management/ self-edit path. Keep this set tight since adding a
 # field here means a regular user can self-assign it without admin perms.
 SELF_EDIT_ALLOWED_FIELDS = frozenset({
     "first_name",
@@ -168,7 +168,7 @@ class UserViewSet(viewsets.ModelViewSet):
     def _restrict_to_self_edit_fields(data):
         """Return a copy of `data` containing only the safe self-edit fields.
 
-        Handles both QueryDict (multipart upload — what the avatar form
+        Handles both QueryDict (multipart upload, what the avatar form
         sends) and plain dict (JSON). Preserves the original type so the
         downstream serializer parses files correctly.
         """
@@ -206,7 +206,7 @@ class GroupViewSet(viewsets.ModelViewSet):
 
 
 class AvailablePermissionsView(APIView):
-    """Legacy endpoint — returns the raw Django permission catalog.
+    """Legacy endpoint: returns the raw Django permission catalog.
 
     Kept for the advanced/escape-hatch flow. New admin UI should render from
     /auth/capabilities/ manifest instead of listing individual permissions.

@@ -13,7 +13,7 @@ Two rules are applied whenever a permission is added to a User or a Group:
 
 The signal listens on both User.user_permissions and Group.permissions m2m
 relations, so the rules fire identically whether an admin edits a user directly
-or — more commonly — edits a Group/role.
+or, more commonly, edits a Group/role.
 """
 from django.contrib.auth.models import Group, Permission, User
 from django.db import transaction

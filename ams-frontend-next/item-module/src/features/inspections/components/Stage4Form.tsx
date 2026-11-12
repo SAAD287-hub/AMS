@@ -94,7 +94,7 @@ export function Stage4Form({ data, onChange, readOnly }: Stage4FormProps) {
         </div>
       </div>
 
-      {/* ── Finance Settlement Check Date — Prominent Required Field ── */}
+      {/* -- Finance Settlement Check Date - Prominent Required Field -- */}
       <div className="border-2 border-primary rounded-xl overflow-hidden">
         <div className="bg-primary px-5 py-3 flex items-center gap-2">
           <Calendar className="w-4 h-4 text-primary-foreground" />
@@ -107,7 +107,7 @@ export function Stage4Form({ data, onChange, readOnly }: Stage4FormProps) {
           </p>
           <div className="w-full md:w-52 shrink-0">
             {readOnly ? (
-              <span className="text-sm font-bold text-foreground">{data.finance_check_date || "—"}</span>
+              <span className="text-sm font-bold text-foreground">{data.finance_check_date || "-"}</span>
             ) : (
               <input
                 type="date"
@@ -135,7 +135,7 @@ export function Stage4Form({ data, onChange, readOnly }: Stage4FormProps) {
             </div>
             <div>
               <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground block mb-1">Execution Date</span>
-              <p className="text-sm font-semibold text-foreground">{data.contract_date || "—"}</p>
+              <p className="text-sm font-semibold text-foreground">{data.contract_date || "-"}</p>
             </div>
             <div>
               <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground block mb-1">Cost Center</span>
@@ -157,19 +157,19 @@ export function Stage4Form({ data, onChange, readOnly }: Stage4FormProps) {
           <div className="grid grid-cols-2 gap-y-4 gap-x-6">
             <div>
               <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground block mb-1">Inspected By</span>
-              <p className="text-sm font-semibold text-foreground truncate">{data.inspected_by || "—"}</p>
+              <p className="text-sm font-semibold text-foreground truncate">{data.inspected_by || "-"}</p>
             </div>
             <div>
               <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground block mb-1">Inspection Date</span>
-              <p className="text-sm font-semibold text-foreground">{data.date_of_inspection || "—"}</p>
+              <p className="text-sm font-semibold text-foreground">{data.date_of_inspection || "-"}</p>
             </div>
             <div>
               <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground block mb-1">Consignee Name</span>
-              <p className="text-sm font-semibold text-foreground truncate">{data.consignee_name || "—"}</p>
+              <p className="text-sm font-semibold text-foreground truncate">{data.consignee_name || "-"}</p>
             </div>
             <div>
               <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground block mb-1">Designation</span>
-              <p className="text-sm font-semibold text-foreground truncate">{data.consignee_designation || "—"}</p>
+              <p className="text-sm font-semibold text-foreground truncate">{data.consignee_designation || "-"}</p>
             </div>
           </div>
         </div>
@@ -184,7 +184,7 @@ export function Stage4Form({ data, onChange, readOnly }: Stage4FormProps) {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
           <div>
             <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground block mb-1">Fulfillment Date</span>
-            <p className="text-sm font-semibold text-foreground">{data.date_of_delivery || "—"}</p>
+            <p className="text-sm font-semibold text-foreground">{data.date_of_delivery || "-"}</p>
           </div>
           <div>
             <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground block mb-1">Fulfillment Type</span>

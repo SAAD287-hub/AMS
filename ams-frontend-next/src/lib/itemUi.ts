@@ -182,6 +182,18 @@ export function formatQuantity(value: number | string | null | undefined) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(toNumber(value));
 }
 
+/**
+ * Cleans a unit-of-measure string for display. Returns a safe label that
+ * doesn't look like a count (e.g. "100" was accidentally stored as unit).
+ */
+export function sanitizeUnit(unit: string | null | undefined, fallback = "unit"): string {
+  const trimmed = (unit ?? "").trim();
+  if (!trimmed) return fallback;
+  // If unit is purely numeric, it's almost certainly bad data, so fall back.
+  if (/^\d+(?:[.,]\d+)?$/.test(trimmed)) return fallback;
+  return trimmed;
+}
+
 export function formatItemDate(value: string | null | undefined, fallback = "-") {
   if (!value) return fallback;
   const date = new Date(value);

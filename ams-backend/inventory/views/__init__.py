@@ -1,4 +1,5 @@
 from .location_views import LocationTagViewSet, LocationViewSet
+from .vendor_views import VendorViewSet
 from .category_views import CategoryViewSet
 from .item_views import ItemViewSet
 from .distribution_views import StockRecordViewSet

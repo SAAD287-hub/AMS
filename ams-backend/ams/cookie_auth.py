@@ -23,7 +23,7 @@ class JWTCookieAuthentication(JWTAuthentication):
             validated_token = self.get_validated_token(raw_token)
             user = self.get_user(validated_token)
         except (InvalidToken, TokenError):
-            # Corrupt / expired cookie — let the request fall through as
+            # Corrupt / expired cookie, let the request fall through as
             # unauthenticated rather than raising immediately, so the 401
             # handler can trigger a client-side refresh.
             return None

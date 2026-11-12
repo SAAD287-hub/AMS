@@ -27,6 +27,13 @@ const Ic = ({ d, size = 16 }: { d: React.ReactNode | string; size?: number }) =>
   </svg>
 );
 
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 function TimestampCell({ value, fallback }: { value: string | null | undefined; fallback: string }) {
   if (!value) {
     return <div className="login-cell"><div>{fallback}</div></div>;
@@ -55,28 +62,25 @@ function locationTypeChipClass(type: string) {
 
 function LocationTypeChips({ location }: { location: LocationRecord }) {
   const baseType = locationTypeLabel(location.location_type);
+  // If the location is a store, the "Store" identity trumps its physical
+  // type (e.g. "Other"). A room is also almost always just a physical
+  // space, so we don't need to double-tag it. Show a single, unambiguous chip.
+  if (location.is_store) {
+    return (
+      <span className="location-type-chips">
+        <span className="chip chip-store">Store</span>
+      </span>
+    );
+  }
   return (
     <span className="location-type-chips">
       <span className={locationTypeChipClass(location.location_type)}>{baseType}</span>
-      {location.is_store && baseType.toLowerCase() !== "store" ? <span className="chip chip-store">Store</span> : null}
     </span>
   );
 }
 
 function deleteBlockedMessage(blockers: string[] | undefined, fallback: string) {
   return blockers && blockers.length > 0 ? blockers.join(" ") : fallback;
-}
-
-function DensityToggle({ density, setDensity }: { density: "compact" | "balanced" | "comfortable"; setDensity: (density: "compact" | "balanced" | "comfortable") => void }) {
-  return (
-    <div className="seg">
-      {(["compact", "balanced", "comfortable"] as const).map(option => (
-        <button type="button" key={option} className={"seg-btn" + (density === option ? " active" : "")} onClick={() => setDensity(option)}>
-          {option.charAt(0).toUpperCase() + option.slice(1)}
-        </button>
-      ))}
-    </div>
-  );
 }
 
 type TagFormState = {
@@ -338,13 +342,13 @@ function LocationActions({
     <div className="row-actions">
       {canRenderEdit && (
         <Button type="button" variant="ghost" size="xs" className="row-action" onClick={event => { event.stopPropagation(); onEdit?.(); }} title="Edit location" disabled={disabled}>
-          <Ic d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" size={13} />
+          <Ic d="M12 20h9 M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" size={13} />
           <span className="ra-label">Edit</span>
         </Button>
       )}
       {canRenderDelete && (
         <Button type="button" variant="outline" size="xs" className="btn-danger-ghost row-action" onClick={event => { event.stopPropagation(); onDelete?.(); }} title="Delete location" disabled={disabled}>
-          <Ic d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0l1 12h6l1-12" size={13} />
+          <Ic d="M3 6h18 M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6 M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2 M10 11v6 M14 11v6" size={13} />
           <span className="ra-label">{deleteBusy ? "Deleting…" : "Delete"}</span>
         </Button>
       )}
@@ -358,6 +362,7 @@ function LocationCard({
   canDelete,
   pageBusy,
   deleteBusy,
+  depth = 0,
   onOpen,
   onEdit,
   onDelete,
@@ -367,36 +372,77 @@ function LocationCard({
   canDelete: boolean;
   pageBusy: boolean;
   deleteBusy: boolean;
+  depth?: number;
   onOpen?: () => void;
   onEdit: () => void;
   onDelete?: () => void;
 }) {
+  const indentPx = Math.min(depth, 3) * 24;
   return (
-    <div className="user-card" onClick={onOpen} style={onOpen ? { cursor: "pointer" } : undefined}>
-      <div className="user-card-head">
-        <StatusPill active={location.is_active} />
-      </div>
-      <div className="user-card-name">{location.name}</div>
-      <div className="user-card-meta mono">{location.code}</div>
-      <div className="user-card-eid"><LocationTypeChips location={location} /></div>
-      <div className="user-card-section">
-        <div className="eyebrow">Parent Location</div>
-        <div style={{ fontSize: 13, color: "var(--text-1)" }}>{location.parent_location_display ?? "Root location"}</div>
-      </div>
-      <div className="user-card-section">
-        <div className="eyebrow">Tags</div>
-        <div style={{ fontSize: 13, color: "var(--text-1)" }}>
-          {location.tags_display && location.tags_display.length > 0
-            ? location.tags_display.map(tag => tag.name).join(", ")
-            : "Not assigned"}
+    <div
+      className="location-card"
+      data-status={location.is_active ? "active" : "inactive"}
+      data-depth={depth}
+      onClick={onOpen}
+      style={{
+        cursor: onOpen ? "pointer" : undefined,
+        marginLeft: indentPx ? `${indentPx}px` : undefined,
+      }}
+    >
+      <div className="location-card-head">
+        <div className="location-card-icon" aria-hidden="true">
+          <Ic d="M20 10c0 7-8 12-8 12s-8-5-8-12a8 8 0 0 1 16 0z M15 10a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" size={22} />
+        </div>
+        <div className="location-card-title-wrap">
+          <div className="location-card-title-row">
+            <div className="location-card-name" title={location.name}>{location.name}</div>
+            <StatusPill active={location.is_active} />
+          </div>
+          <div className="location-card-sub">
+            <span className="location-card-code mono">{location.code}</span>
+            <span className="location-card-dot" aria-hidden="true">•</span>
+            <LocationTypeChips location={location} />
+          </div>
         </div>
       </div>
-      <div className="user-card-section">
-        <div className="eyebrow">In charge</div>
-        <div style={{ fontSize: 13, color: "var(--text-1)" }}>{location.in_charge || "Not assigned"}</div>
+
+      <div className="location-card-meta">
+        <div className="location-card-row">
+          <span className="location-card-row-icon" aria-hidden="true">
+            <Ic d="M3 7l2-2h4l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z" size={13} />
+          </span>
+          <span className="location-card-label">Parent</span>
+          <span className="location-card-value">{location.parent_location_display ?? "Root location"}</span>
+        </div>
+        <div className="location-card-row">
+          <span className="location-card-row-icon" aria-hidden="true">
+            <Ic d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" size={13} />
+          </span>
+          <span className="location-card-label">In charge</span>
+          {location.in_charge ? (
+            <span className="location-card-value location-card-incharge">
+              <span className="location-card-avatar" aria-hidden="true">{initialsOf(location.in_charge)}</span>
+              <span className="location-card-incharge-name">{location.in_charge}</span>
+            </span>
+          ) : (
+            <span className="location-card-value muted-value">Not assigned</span>
+          )}
+        </div>
+        <div className="location-card-row">
+          <span className="location-card-row-icon" aria-hidden="true">
+            <Ic d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z M7 7h.01" size={13} />
+          </span>
+          <span className="location-card-label">Tags</span>
+          <span className={"location-card-value" + (!location.tags_display || location.tags_display.length === 0 ? " muted-value" : "")}>
+            {location.tags_display && location.tags_display.length > 0
+              ? location.tags_display.map(tag => tag.name).join(", ")
+              : "Not assigned"}
+          </span>
+        </div>
       </div>
-      <div className="user-card-foot">
-        <div>
+
+      <div className="location-card-foot">
+        <div className="location-card-updated">
           <div className="eyebrow">Updated</div>
           <div className="user-card-last mono">{relTime(location.updated_at)}</div>
         </div>
@@ -419,6 +465,7 @@ function LocationRow({
   canDelete,
   pageBusy,
   deleteBusy,
+  depth = 0,
   onOpen,
   onEdit,
   onDelete,
@@ -428,15 +475,24 @@ function LocationRow({
   canDelete: boolean;
   pageBusy: boolean;
   deleteBusy: boolean;
+  depth?: number;
   onOpen?: () => void;
   onEdit: () => void;
   onDelete?: () => void;
 }) {
   return (
-    <tr onClick={onOpen} style={onOpen ? { cursor: "pointer" } : undefined}>
+    <tr className="location-row" data-status={location.is_active ? "active" : "inactive"} data-depth={depth} onClick={onOpen} style={onOpen ? { cursor: "pointer" } : undefined}>
       <td className="col-user">
-        <div className="user-cell">
-          <div>
+        <div className="location-row-cell" style={{ paddingLeft: depth > 0 ? `${depth * 20}px` : undefined }}>
+          {depth > 0 && (
+            <span className="location-row-indent" aria-hidden="true">
+              <Ic d="M3 3v14a4 4 0 0 0 4 4h14" size={14} />
+            </span>
+          )}
+          <span className="location-row-icon" aria-hidden="true">
+            <Ic d="M20 10c0 7-8 12-8 12s-8-5-8-12a8 8 0 0 1 16 0z M15 10a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" size={16} />
+          </span>
+          <div className="location-row-text">
             <div className="user-name">{location.name}</div>
             <div className="user-username mono">{location.code}</div>
           </div>
@@ -451,9 +507,18 @@ function LocationRow({
               {location.tags_display.length > 2 ? <span className="chip">+{location.tags_display.length - 2}</span> : null}
             </span>
           )
-          : <span className="muted-note">—</span>}
+          : <span className="muted-note">-</span>}
       </td>
-      <td>{location.in_charge || <span className="muted-note">—</span>}</td>
+      <td className="col-incharge">
+        {location.in_charge ? (
+          <span className="location-row-incharge">
+            <span className="location-card-avatar" aria-hidden="true">{initialsOf(location.in_charge)}</span>
+            <span className="location-row-incharge-name">{location.in_charge}</span>
+          </span>
+        ) : (
+          <span className="muted-note">-</span>
+        )}
+      </td>
       <td><StatusPill active={location.is_active} /></td>
       <td className="col-login"><TimestampCell value={location.updated_at} fallback="Unknown" /></td>
       <td className="col-actions">
@@ -486,7 +551,7 @@ export function LocationListView({ variant, parentId }: LocationListViewProps) {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [density, setDensity] = useState<"compact" | "balanced" | "comfortable">("balanced");
+  const density = "balanced" as const;
   const [mode, setMode] = useState<"table" | "grid">("table");
   const [modalOpen, setModalOpen] = useState(false);
   const [tagsModalOpen, setTagsModalOpen] = useState(false);
@@ -577,7 +642,7 @@ export function LocationListView({ variant, parentId }: LocationListViewProps) {
 
   const filteredLocations = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return locations.filter(location => {
+    const matches = locations.filter(location => {
       if (q) {
         const tagText = (location.tags_display ?? []).map(tag => `${tag.name} ${tag.category_display ?? tag.category}`).join(" ");
         const hay = `${location.name} ${location.code} ${location.parent_location_display ?? ""} ${tagText} ${location.in_charge ?? ""} ${location.location_type} ${location.is_store ? "store inventory stock" : ""}`.toLowerCase();
@@ -588,6 +653,29 @@ export function LocationListView({ variant, parentId }: LocationListViewProps) {
       if (statusFilter === "inactive" && location.is_active) return false;
       return true;
     });
+
+    // Depth-first tree ordering so parents appear before their children.
+    const byId = new Map<number, LocationRecord>();
+    matches.forEach(l => byId.set(l.id, l));
+    const childrenByParent = new Map<number | null, LocationRecord[]>();
+    matches.forEach(l => {
+      const parentKey = l.parent_location != null && byId.has(l.parent_location) ? l.parent_location : null;
+      if (!childrenByParent.has(parentKey)) childrenByParent.set(parentKey, []);
+      childrenByParent.get(parentKey)!.push(l);
+    });
+    childrenByParent.forEach(arr => arr.sort((a, b) => a.name.localeCompare(b.name)));
+
+    const ordered: LocationRecord[] = [];
+    const walk = (parentId: number | null, depth: number) => {
+      const kids = childrenByParent.get(parentId) ?? [];
+      for (const kid of kids) {
+        (kid as LocationRecord & { _depth?: number })._depth = depth;
+        ordered.push(kid);
+        walk(kid.id, depth + 1);
+      }
+    };
+    walk(null, 0);
+    return ordered;
   }, [locations, search, typeFilter, statusFilter]);
 
   const typeOptions = useMemo(() => {
@@ -609,8 +697,8 @@ export function LocationListView({ variant, parentId }: LocationListViewProps) {
   const createLabel = isChildrenView ? "Add Sub Location" : "Add Location";
   const emptyMessage = isChildrenView ? "No sub-locations match the current filters." : "No locations match the current filters.";
   const footerLabel = isChildrenView ? "Direct children" : "Standalone locations";
-  const modalCreateContext = isChildrenView ? "child" : "standalone";
-  const modalLockedParent = isChildrenView ? parentLocation : rootLocation;
+  const modalCreateContext = isChildrenView ? "child" : "default";
+  const modalLockedParent = isChildrenView ? parentLocation : null;
   const openLocation = isChildrenView ? undefined : (location: LocationRecord) => router.push(`/locations/${location.id}`);
   const openCreateModal = useCallback(() => {
     clearActionError();
@@ -779,6 +867,18 @@ export function LocationListView({ variant, parentId }: LocationListViewProps) {
     return () => window.removeEventListener(SAME_PAGE_OPEN_EVENT, onOpen);
   }, [canAddLocation, isChildrenView, openCreateModal, parentLocation]);
 
+  const noun = isChildrenView ? "sub-location" : "location";
+  const nounPlural = isChildrenView ? "sub-locations" : "locations";
+  const totalLocations = filteredLocations.length;
+  const summaryText =
+    totalLocations === 0
+      ? `No ${nounPlural}`
+      : totalLocations === 1
+        ? `1 ${noun}`
+        : pageStart === 1 && pageEnd === totalLocations
+          ? `All ${totalLocations} ${nounPlural}`
+          : `Showing ${pageStart}–${pageEnd} of ${totalLocations} ${nounPlural}`;
+
   return (
     <div data-density={density}>
       <LocationModal
@@ -831,15 +931,21 @@ export function LocationListView({ variant, parentId }: LocationListViewProps) {
 
         <div className="filter-bar">
           <div className="filter-bar-left">
-            <div className="search-input">
+            <label className="search-input">
               <Ic d={<><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></>} size={14} />
               <input
-                placeholder="Search by name, code, parent, or type…"
+                placeholder="Search by name, code, parent, type, or in-charge…"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
+                onClick={e => {
+                  if (!e.currentTarget.value) e.currentTarget.setSelectionRange(0, 0);
+                }}
+                onFocus={e => {
+                  if (!e.currentTarget.value) e.currentTarget.setSelectionRange(0, 0);
+                }}
               />
-              {search && <button type="button" className="clear-search" onClick={() => setSearch("")}>×</button>}
-            </div>
+              {search && <button type="button" className="clear-search" onClick={e => { e.preventDefault(); setSearch(""); }}>×</button>}
+            </label>
 
             <div className="filter-select-group">
               <div className="chip-filter-label">Type</div>
@@ -876,7 +982,6 @@ export function LocationListView({ variant, parentId }: LocationListViewProps) {
           </div>
 
           <div className="filter-bar-right">
-            <DensityToggle density={density} setDensity={setDensity} />
             <div className="seg" title="View mode">
               <button type="button" className={"seg-btn icon-only" + (mode === "table" ? " active" : "")} onClick={() => setMode("table")} title="Table">
                 <Ic d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" size={14} />
@@ -923,7 +1028,7 @@ export function LocationListView({ variant, parentId }: LocationListViewProps) {
                         ) : null}
                       </span>
                     </th>
-                    <th>In charge</th>
+                    <th className="col-incharge">In charge</th>
                     <th>Status</th>
                     <th>Updated At</th>
                     <th>Actions</th>
@@ -947,6 +1052,7 @@ export function LocationListView({ variant, parentId }: LocationListViewProps) {
                         canDelete={canDeleteLocation && location.can_delete !== false}
                         pageBusy={pageBusy}
                         deleteBusy={deleteBusyLocationId === location.id}
+                        depth={(location as LocationRecord & { _depth?: number })._depth ?? 0}
                         onOpen={openLocation ? () => openLocation(location) : undefined}
                         onEdit={() => setEditingLocation(location)}
                         onDelete={canDeleteLocation && location.can_delete !== false ? () => handleDelete(location) : undefined}
@@ -957,7 +1063,7 @@ export function LocationListView({ variant, parentId }: LocationListViewProps) {
               </table>
             </div>
             <ListPagination
-              summary={filteredLocations.length === 0 ? `Showing 0 ${isChildrenView ? "sub-locations" : "locations"}` : `Showing ${pageStart}-${pageEnd} of ${filteredLocations.length} ${isChildrenView ? "sub-locations" : "locations"}`}
+              summary={summaryText}
               page={page}
               totalPages={totalPages}
               onPrev={() => setPage(current => Math.max(1, current - 1))}
@@ -974,6 +1080,7 @@ export function LocationListView({ variant, parentId }: LocationListViewProps) {
                 canDelete={canDeleteLocation && location.can_delete !== false}
                 pageBusy={pageBusy}
                 deleteBusy={deleteBusyLocationId === location.id}
+                depth={(location as LocationRecord & { _depth?: number })._depth ?? 0}
                 onOpen={openLocation ? () => openLocation(location) : undefined}
                 onEdit={() => setEditingLocation(location)}
                 onDelete={() => handleDelete(location)}
@@ -989,7 +1096,7 @@ export function LocationListView({ variant, parentId }: LocationListViewProps) {
         )}
         {mode === "grid" && filteredLocations.length > 0 ? (
           <ListPagination
-            summary={`Showing ${pageStart}-${pageEnd} of ${filteredLocations.length} ${isChildrenView ? "sub-locations" : "locations"}`}
+            summary={summaryText}
             page={page}
             totalPages={totalPages}
             onPrev={() => setPage(current => Math.max(1, current - 1))}

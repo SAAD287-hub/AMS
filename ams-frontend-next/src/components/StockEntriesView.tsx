@@ -19,7 +19,7 @@ import { useCopilotAction } from "@/hooks/useCopilotAction";
 import { useCopilotForm, type CopilotFormField } from "@/hooks/useCopilotForm";
 import { useCopilotListControls } from "@/hooks/useCopilotListControls";
 import { useCopilotReadable } from "@/hooks/useCopilotReadable";
-import { relTime, type LocationRecord } from "@/lib/userUiShared";
+import { relTime, formatListSummary, type LocationRecord } from "@/lib/userUiShared";
 import { normalizeCopilotSubmitError } from "@/lib/copilotFormRuntime";
 import { buildCopilotListContext } from "@/lib/copilotPageContext";
 import { consumePendingOpen, SAME_PAGE_OPEN_EVENT } from "@/lib/copilotPendingAction";
@@ -63,6 +63,7 @@ interface StockRegisterRecord {
   store: number;
   store_name?: string | null;
   is_active: boolean;
+  last_page_number?: number;
 }
 
 interface PersonRecord {
@@ -129,6 +130,14 @@ interface StockEntryRecord {
   correction_status?: CorrectionStatus | null;
 }
 
+interface VendorRefRecord {
+  id: number;
+  name: string;
+  code: string;
+  contact_person?: string;
+  is_active: boolean;
+}
+
 interface ReferenceData {
   items: ItemRecord[];
   batches: ItemBatchRecord[];
@@ -138,6 +147,7 @@ interface ReferenceData {
   allocations: StockAllocationRecord[];
   stockRecords: StockEntryStockRecord[];
   instances: StockEntryItemInstance[];
+  vendors: VendorRefRecord[];
 }
 
 interface StockEntryScopeStore {
@@ -153,13 +163,13 @@ const Ic = ({ d, size = 16 }: { d: ReactNode | string; size?: number }) => (
   </svg>
 );
 
-function formatLabel(value: string | null | undefined, fallback = "—") {
+function formatLabel(value: string | null | undefined, fallback = "-") {
   if (!value) return fallback;
   return value.replace(/[_-]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
 function formatDate(value: string | null | undefined) {
-  if (!value) return "—";
+  if (!value) return "-";
   return new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }
 
@@ -538,6 +548,7 @@ function emptyForm(): StockEntryFormState {
     from_location: "",
     to_location: "",
     issued_to: "",
+    vendor: "",
     status: "PENDING_ACK",
     purpose: "",
     remarks: "",
@@ -558,6 +569,7 @@ function formFromEntry(entry: StockEntryRecord | null, locations: LocationRecord
     from_location: entry.from_location == null ? "" : String(entry.from_location),
     to_location: entry.to_location == null ? "" : String(entry.to_location),
     issued_to: entry.issued_to == null ? "" : String(entry.issued_to),
+    vendor: (entry as { vendor?: number | null }).vendor == null ? "" : String((entry as { vendor?: number | null }).vendor),
     status: entry.status === "COMPLETED" ? "COMPLETED" : entry.status === "PENDING_ACK" ? "PENDING_ACK" : "DRAFT",
     purpose: entry.purpose ?? "",
     remarks: entry.remarks ?? "",
@@ -597,8 +609,88 @@ function StockEntryModal({ open, mode, entry, refs: baseRefs, refsLoading: baseR
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [transferrableStores, setTransferrableStores] = useState<LocationRecord[]>([]);
+  const [extraRegisters, setExtraRegisters] = useState<StockRegisterRecord[]>([]);
+  const [newRegisterRowIndex, setNewRegisterRowIndex] = useState<number | null>(null);
+  const [newRegisterNumber, setNewRegisterNumber] = useState("");
+  const [newRegisterBusy, setNewRegisterBusy] = useState(false);
+  const [newRegisterError, setNewRegisterError] = useState<string | null>(null);
+  const vendorReceiptMode = form.entry_type === 'RECEIPT' && form.return_source === 'LOCATION' && Boolean(form.vendor);
+
   useEffect(() => {
-    if (!open || !stockStore) { setStockRefsLoading(false); setStockRefs({ items: [], stockRecords: [], allocations: [] }); return; }
+    if (!open) {
+      setExtraRegisters([]);
+      setNewRegisterRowIndex(null);
+      setNewRegisterNumber("");
+      setNewRegisterError(null);
+      setNewRegisterBusy(false);
+    }
+  }, [open]);
+
+  const openNewRegister = (rowIndex: number) => {
+    setNewRegisterRowIndex(rowIndex);
+    setNewRegisterNumber("");
+    setNewRegisterError(null);
+  };
+  const closeNewRegister = () => {
+    setNewRegisterRowIndex(null);
+    setNewRegisterNumber("");
+    setNewRegisterError(null);
+  };
+  const submitNewRegister = async () => {
+    if (newRegisterRowIndex == null) return;
+    const trimmed = newRegisterNumber.trim();
+    if (!trimmed) { setNewRegisterError("Register number is required."); return; }
+    if (!selectedSourceStoreId) { setNewRegisterError("Pick the receiving / source store first."); return; }
+
+    const duplicate = mergedRegisters.find(reg => (
+      String(reg.store) === String(selectedSourceStoreId) &&
+      reg.register_number.trim().toLowerCase() === trimmed.toLowerCase()
+    ));
+    if (duplicate) {
+      setNewRegisterError(`A register named "${duplicate.register_number}" already exists for this store. Pick it from the dropdown instead.`);
+      return;
+    }
+
+    setNewRegisterBusy(true);
+    setNewRegisterError(null);
+    try {
+      const created = await apiFetch<StockRegisterRecord>("/api/inventory/stock-registers/", {
+        method: "POST",
+        body: JSON.stringify({ register_number: trimmed, store: Number(selectedSourceStoreId), is_active: true }),
+      });
+      setExtraRegisters(prev => [...prev, created]);
+      const rowIndex = newRegisterRowIndex;
+      setForm(prev => ({
+        ...prev,
+        items: prev.items.map((row, index) => index === rowIndex ? { ...row, stock_register: String(created.id), page_number: row.page_number || "1" } : row),
+      }));
+      closeNewRegister();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not create register.";
+      if (/already exists|must make a unique set|duplicate key/i.test(message)) {
+        setNewRegisterError(`A register named "${trimmed}" already exists for this store. Pick it from the dropdown instead.`);
+      } else {
+        setNewRegisterError(message);
+      }
+    } finally {
+      setNewRegisterBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!open) { setStockRefsLoading(false); setStockRefs({ items: [], stockRecords: [], allocations: [] }); return; }
+    // Vendor receipt: no store inventory to inspect, so just load the full item catalog.
+    if (vendorReceiptMode) {
+      let active = true;
+      setStockRefsLoading(true);
+      (async () => {
+        const items = await fetchAllPages<ItemRecord>("/api/inventory/items/?page_size=500");
+        if (active) setStockRefs({ items, stockRecords: [], allocations: [] });
+      })().catch(error => { if (active) setSubmitError(error instanceof Error ? error.message : 'Unable to load item catalog.'); })
+        .finally(() => { if (active) setStockRefsLoading(false); });
+      return () => { active = false; };
+    }
+    if (!stockStore) { setStockRefsLoading(false); setStockRefs({ items: [], stockRecords: [], allocations: [] }); return; }
     let active = true;
     setStockRefsLoading(true);
     setStockRefs({ items: [], stockRecords: [], allocations: [] });
@@ -608,7 +700,7 @@ function StockEntryModal({ open, mode, entry, refs: baseRefs, refsLoading: baseR
     })().catch(error => { if (active) setSubmitError(error instanceof Error ? error.message : 'Unable to load store inventory.'); })
       .finally(() => { if (active) setStockRefsLoading(false); });
     return () => { active = false; };
-  }, [open, stockStore]);
+  }, [open, stockStore, vendorReceiptMode]);
 
   useEffect(() => {
     if (!open || !selectedItemKey) { setLineRefsLoading(false); setLineRefs({ batches: [], instances: [] }); return; }
@@ -712,32 +804,64 @@ function StockEntryModal({ open, mode, entry, refs: baseRefs, refsLoading: baseR
   const returnTarget = getReturnTargetForForm(form);
   const itemContextReady = form.entry_type === "ISSUE"
     ? Boolean(form.from_location)
-    : Boolean(form.to_location && (form.return_source === "PERSON" ? form.issued_to : form.from_location));
+    : Boolean(form.to_location && (
+        form.return_source === "PERSON"
+          ? form.issued_to
+          : (form.vendor || form.from_location)
+      ));
   const itemContextPlaceholder = form.entry_type === "ISSUE"
     ? "Select source store first"
     : form.to_location
-    ? "Select return source first"
+    ? form.return_source === "PERSON" ? "Select returning employee first" : "Select vendor first"
     : "Select receiving store first";
-  const getItemOptionsForForm = (targetForm: StockEntryFormState) => targetForm.entry_type === "ISSUE"
-    ? getIssueItemOptions(targetForm.from_location, refs.items, refs.stockRecords)
-    : getReturnItemOptions(targetForm.to_location, getReturnTargetForForm(targetForm), refs.items, refs.allocations);
-  const getBatchOptionsForForm = (targetForm: StockEntryFormState, row: StockEntryFormItem) => targetForm.entry_type === "ISSUE"
-    ? getIssueBatchOptions(targetForm.from_location, row.item, refs.batches, refs.stockRecords)
-    : getReturnBatchOptions(targetForm.to_location, getReturnTargetForForm(targetForm), row.item, refs.batches, refs.allocations);
-  const getQuantityLimitForForm = (targetForm: StockEntryFormState, row: StockEntryFormItem) => targetForm.entry_type === "ISSUE"
-    ? getIssueAvailableQuantity(targetForm.from_location, row.item, row.batch, refs.stockRecords)
-    : getReturnQuantityLimit(targetForm.to_location, getReturnTargetForForm(targetForm), row.item, row.batch, refs.allocations);
-  const getInstanceOptionsForForm = (targetForm: StockEntryFormState, row: StockEntryFormItem) => targetForm.entry_type === "ISSUE"
-    ? getIssueInstanceOptions(targetForm.from_location, row.item, refs.instances)
-    : getReturnInstanceOptions(targetForm.to_location, getReturnTargetForForm(targetForm), row.item, refs.allocations, refs.instances);
+  const getItemOptionsForForm = (targetForm: StockEntryFormState) => {
+    if (targetForm.entry_type === "ISSUE") {
+      return getIssueItemOptions(targetForm.from_location, refs.items, refs.stockRecords);
+    }
+    // Vendor receipts aren't bound to prior allocations, so allow any active item.
+    if (targetForm.return_source === "LOCATION" && targetForm.vendor) {
+      return refs.items.filter(item => item.is_active);
+    }
+    return getReturnItemOptions(targetForm.to_location, getReturnTargetForForm(targetForm), refs.items, refs.allocations);
+  };
+  const getBatchOptionsForForm = (targetForm: StockEntryFormState, row: StockEntryFormItem) => {
+    if (targetForm.entry_type === "ISSUE") {
+      return getIssueBatchOptions(targetForm.from_location, row.item, refs.batches, refs.stockRecords);
+    }
+    if (targetForm.return_source === "LOCATION" && targetForm.vendor) {
+      const selectedItemId = row.item ? Number(row.item) : null;
+      if (selectedItemId == null) return [];
+      return refs.batches.filter(b => b.is_active && Number(b.item) === selectedItemId);
+    }
+    return getReturnBatchOptions(targetForm.to_location, getReturnTargetForForm(targetForm), row.item, refs.batches, refs.allocations);
+  };
+  const getQuantityLimitForForm = (targetForm: StockEntryFormState, row: StockEntryFormItem) => {
+    if (targetForm.entry_type === "ISSUE") {
+      return getIssueAvailableQuantity(targetForm.from_location, row.item, row.batch, refs.stockRecords);
+    }
+    // Vendor delivery: no upper bound, since they can ship any quantity. Use a large sentinel.
+    if (targetForm.return_source === "LOCATION" && targetForm.vendor) return Number.POSITIVE_INFINITY;
+    return getReturnQuantityLimit(targetForm.to_location, getReturnTargetForForm(targetForm), row.item, row.batch, refs.allocations);
+  };
+  const getInstanceOptionsForForm = (targetForm: StockEntryFormState, row: StockEntryFormItem) => {
+    if (targetForm.entry_type === "ISSUE") {
+      return getIssueInstanceOptions(targetForm.from_location, row.item, refs.instances);
+    }
+    if (targetForm.return_source === "LOCATION" && targetForm.vendor) {
+      // Vendor deliveries introduce new serial-tracked instances rather than returning existing ones.
+      return [];
+    }
+    return getReturnInstanceOptions(targetForm.to_location, getReturnTargetForForm(targetForm), row.item, refs.allocations, refs.instances);
+  };
   const getItemOptions = () => getItemOptionsForForm(form);
   const getBatchOptions = (row: StockEntryFormItem) => getBatchOptionsForForm(form, row);
   const getQuantityLimit = (row: StockEntryFormItem) => getQuantityLimitForForm(form, row);
   const getInstanceOptions = (row: StockEntryFormItem) => getInstanceOptionsForForm(form, row);
   const selectedSourceStoreId = getStockEntryRegisterStoreId(form);
+  const mergedRegisters = useMemo(() => [...refs.registers, ...extraRegisters], [refs.registers, extraRegisters]);
   const sourceRegisterOptions = useMemo(
-    () => getStockEntrySourceRegisterOptions(form, refs.registers),
-    [form.entry_type, form.from_location, form.to_location, refs.registers],
+    () => getStockEntrySourceRegisterOptions(form, mergedRegisters),
+    [form.entry_type, form.from_location, form.to_location, mergedRegisters],
   );
 
   useEffect(() => {
@@ -818,7 +942,7 @@ function StockEntryModal({ open, mode, entry, refs: baseRefs, refsLoading: baseR
         return;
       }
 
-      if (isIndividualTracking(selectedItem)) {
+      if (isIndividualTracking(selectedItem) && !vendorReceiptMode) {
         const instanceOptions = getInstanceOptions(row);
         const validInstanceIds = new Set(instanceOptions.map(instance => String(instance.id)));
         const selectedInstanceIds = row.instances ?? [];
@@ -1210,29 +1334,55 @@ function StockEntryModal({ open, mode, entry, refs: baseRefs, refsLoading: baseR
             </Alert>
           )}
 
-          <Section n={1} title="Movement" sub={form.entry_type === "ISSUE" ? "Choose the store sending stock, then choose who or where receives it." : "Choose the store receiving returned stock, then choose who or where it is returning from."}>
+          {mode === "create" && !refsLoading && (
+            <div className="stock-entry-help">
+              <div className="stock-entry-help-title">How do stock entries work?</div>
+              <div className="stock-entry-help-body">
+                A stock entry is the single document that moves items in or out of a store. Pick the entry type that matches what actually happened:
+              </div>
+              <ul className="stock-entry-help-list">
+                <li>
+                  <strong>Transfer / Allocation</strong>: stock is going <em>out</em> of a store. Use this when sending items to another store, allocating to an employee, or dispatching to a non-store location (classroom, lab, site).
+                </li>
+                <li>
+                  <strong>Return Receipt</strong>: stock is coming <em>back into</em> a store. Use this for returns from an employee <em>or</em> for fresh receipts from an external source (vendor / supplier / rejection return). For vendor deliveries, set <em>Return From → Non-store</em> and type the vendor name.
+                </li>
+              </ul>
+              <div className="stock-entry-help-foot">The form below reveals exactly the fields you need once you choose the type.</div>
+            </div>
+          )}
+
+          <Section
+            n={1}
+            title="Movement"
+            sub={
+              form.entry_type === "ISSUE"
+                ? "Stock is leaving a store. Pick the source store, then tell the system where (or to whom) it's going."
+                : "Stock is coming back into a store. Pick the receiving store, then tell the system who it's returning from (an employee) or where it's arriving from (a non-store source such as a vendor)."
+            }
+          >
             <div className="form-grid cols-2">
-              <Field label="Entry Type" required>
+              <Field label="Entry Type" required hint="Transfer = stock out of a store. Return Receipt = stock into a store (employee return OR vendor delivery).">
                 <ThemedSelect
                   value={form.entry_type}
                   onChange={value => update("entry_type", value as CreatableStockEntryType)}
                   options={[
-                    { value: "ISSUE", label: "Transfer / Allocation" },
-                    { value: "RECEIPT", label: "Return Receipt" },
+                    { value: "ISSUE", label: "Transfer / Allocation (outgoing)" },
+                    { value: "RECEIPT", label: "Return Receipt (incoming)" },
                   ]}
                   ariaLabel="Select stock entry type"
                 />
               </Field>
               {form.entry_type === "ISSUE" ? (
                 <>
-                  <Field label="Issue To" required>
+                  <Field label="Issue To" required hint="Store = move stock to another store. Non-store = dispatch to a lab/classroom/site (no store there). Person = allocate to an employee.">
                     <div className="seg seg-inline">
                       {(["STORE", "LOCATION", "PERSON"] as const).map(option => (
                         <button key={option} type="button" className={"seg-btn" + (form.issue_target === option ? " active" : "")} onClick={() => update("issue_target", option)}>{option === "LOCATION" ? "Non-store" : formatLabel(option)}</button>
                       ))}
                     </div>
                   </Field>
-                  <Field label="Source Store" required error={errors.from_location} hint="Only stores can send stock.">
+                  <Field label="Source Store" required error={errors.from_location} hint="The store that currently holds the stock. Only stores can send stock.">
                     <SearchableSelect
                       value={form.from_location}
                       options={selectableStoreOptions.map(locationOption)}
@@ -1271,14 +1421,14 @@ function StockEntryModal({ open, mode, entry, refs: baseRefs, refsLoading: baseR
                 </>
               ) : (
                 <>
-                  <Field label="Return From" required>
+                  <Field label="Return From" required hint="Employee = used stock coming back from a person. Non-store = fresh delivery from a vendor, supplier or any external source.">
                     <div className="seg seg-inline">
                       {(["PERSON", "LOCATION"] as const).map(option => (
-                        <button key={option} type="button" className={"seg-btn" + (form.return_source === option ? " active" : "")} onClick={() => update("return_source", option)}>{option === "LOCATION" ? "Non-store" : "Employee"}</button>
+                        <button key={option} type="button" className={"seg-btn" + (form.return_source === option ? " active" : "")} onClick={() => update("return_source", option)}>{option === "LOCATION" ? "Non-store / Vendor" : "Employee"}</button>
                       ))}
                     </div>
                   </Field>
-                  <Field label="Receiving Store" required error={errors.to_location} hint={singleAssignedStore ? "The only store assigned to this account is selected automatically." : "Returned stock is received back into this store."}>
+                  <Field label="Receiving Store" required error={errors.to_location} hint={singleAssignedStore ? "The only store assigned to this account is selected automatically." : "The store that will physically hold the incoming stock after this entry."}>
                     <SearchableSelect
                       value={form.to_location}
                       options={selectableStoreOptions.map(locationOption)}
@@ -1290,7 +1440,7 @@ function StockEntryModal({ open, mode, entry, refs: baseRefs, refsLoading: baseR
                     />
                   </Field>
                   {form.return_source === "PERSON" ? (
-                    <Field label="Returning Employee" required error={errors.issued_to}>
+                    <Field label="Returning Employee" required error={errors.issued_to} hint="Only employees who currently have active allocations from the receiving store are listed.">
                       <SearchableSelect
                         value={form.issued_to}
                         options={receiptPersonOptions.map(personOption)}
@@ -1302,39 +1452,40 @@ function StockEntryModal({ open, mode, entry, refs: baseRefs, refsLoading: baseR
                       />
                     </Field>
                   ) : (
-                    <Field label="Returning Non-store" required error={errors.from_location}>
+                    <Field label="Source vendor" required error={errors.vendor ?? errors.from_location} hint="Pick the vendor / supplier the stock is coming from. Manage vendors on the Vendors page.">
                       <SearchableSelect
-                        value={form.from_location}
-                        options={receiptNonStoreOptions.map(locationOption)}
-                        onChange={value => update("from_location", value)}
-                        placeholder={form.to_location ? "Select non-store location" : "Select receiving store first"}
-                        searchPlaceholder="Search non-stores with active allocations..."
-                        emptyLabel="No active non-store allocations from this store"
+                        value={form.vendor}
+                        options={refs.vendors.map(v => ({ value: String(v.id), label: v.name, meta: v.code }))}
+                        onChange={value => update("vendor", value)}
+                        placeholder={refs.vendors.length === 0 ? "No vendors yet - add one on the Vendors page" : "Select vendor"}
+                        searchPlaceholder="Search vendors by name or code..."
+                        emptyLabel="No vendors yet. Create a vendor first from the Vendors page."
                         disabled={!form.to_location}
                       />
                     </Field>
                   )}
                 </>
               )}
-              <Field label="Purpose" span={2}>
-                <input className="input" value={form.purpose} onChange={event => update("purpose", event.target.value)} placeholder="Lab allocation, inter-store transfer, inspection receipt…" />
+              <Field label="Purpose" span={2} hint="Short reason for this movement. Shown in registers and reports.">
+                <input className="input" value={form.purpose} onChange={event => update("purpose", event.target.value)} placeholder="e.g. Initial vendor delivery, Lab allocation, Inter-store transfer" />
               </Field>
-              <Field label="Remarks" span={2}>
-                <textarea className="textarea-field" value={form.remarks} onChange={event => update("remarks", event.target.value)} placeholder="Optional movement notes" rows={3} />
+              <Field label="Remarks" span={2} hint="Any additional context: invoice number, contract reference, authority memo, etc.">
+                <textarea className="textarea-field" value={form.remarks} onChange={event => update("remarks", event.target.value)} placeholder="Optional notes (invoice #, approval reference, condition remarks)" rows={3} />
               </Field>
             </div>
           </Section>
 
-          <Section n={2} title="Line Items">
+          <Section n={2} title="Line Items" sub="Add every item being moved in this entry. Quantity-tracked items need just a number; serial-tracked items ask for the specific instances.">
             <div style={{ display: "grid", gap: 12 }}>
               {form.items.map((row, index) => {
                 const itemOptions = getItemOptions();
                 const selectedItem = refs.items.find(item => String(item.id) === row.item);
                 const rowBatchOptions = getBatchOptions(row);
                 const rowInstanceOptions = getInstanceOptions(row);
-                const rowQuantityLimit = isIndividualTracking(selectedItem) ? rowInstanceOptions.length : getQuantityLimit(row);
-                const itemDisabled = !itemContextReady;
                 const individual = isIndividualTracking(selectedItem);
+                const individualSelectableInstances = individual && !vendorReceiptMode;
+                const rowQuantityLimit = individualSelectableInstances ? rowInstanceOptions.length : getQuantityLimit(row);
+                const itemDisabled = !itemContextReady;
                 const autoResolveBatch = isQuantityTrackedItem(selectedItem);
                 const duplicate = row.item && selectedItemIds.has(row.item) && form.items.filter(item => item.item === row.item).length > 1;
                 return (
@@ -1359,7 +1510,7 @@ function StockEntryModal({ open, mode, entry, refs: baseRefs, refsLoading: baseR
                           disabled={itemDisabled}
                         />
                       </Field>
-                      {individual ? (
+                      {individualSelectableInstances ? (
                         <Field label="Instances" required error={errors[`items.${index}.instances`]} hint={row.item ? `${rowInstanceOptions.length} instance${rowInstanceOptions.length === 1 ? "" : "s"} available for this movement.` : "Select an individual-tracked item first."}>
                           <InstanceMultiSelect
                             value={row.instances ?? []}
@@ -1374,6 +1525,10 @@ function StockEntryModal({ open, mode, entry, refs: baseRefs, refsLoading: baseR
                             emptyLabel="No instances available for this selection"
                             disabled={!row.item}
                           />
+                        </Field>
+                      ) : individual && vendorReceiptMode ? (
+                        <Field label="New Units" hint="Vendor is delivering fresh serial-tracked units. Enter the total count below, and individual serial numbers can be assigned later from the Items page.">
+                          <input className="input" value={`${row.quantity || 0} new unit${row.quantity === "1" ? "" : "s"} will be created`} readOnly disabled />
                         </Field>
                       ) : (
                         !autoResolveBatch && (
@@ -1418,17 +1573,36 @@ function StockEntryModal({ open, mode, entry, refs: baseRefs, refsLoading: baseR
                           disabled={!row.item}
                         />
                       </Field>
-                      <Field label="Source Register">
-                        <ThemedSelect
-                          value={row.stock_register}
-                          onChange={value => updateRow(index, { stock_register: value })}
-                          disabled={!selectedSourceStoreId || sourceRegisterOptions.length === 0}
-                          options={sourceRegisterOptions.map(register => ({ value: String(register.id), label: register.register_number, meta: register.store_name ?? undefined }))}
-                          ariaLabel="Select source register"
-                        />
+                      <Field label="Source Register" hint={!selectedSourceStoreId ? "Pick a store above first." : sourceRegisterOptions.length === 0 ? "No register exists for this store - click + New to add one." : "Pick an existing register or create a new one."}>
+                        <div style={{ display: "flex", gap: 6, alignItems: "stretch" }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <ThemedSelect
+                              value={row.stock_register}
+                              onChange={value => {
+                                const picked = mergedRegisters.find(reg => String(reg.id) === value);
+                                const recommended = picked?.last_page_number != null ? String(picked.last_page_number + 1) : row.page_number;
+                                updateRow(index, { stock_register: value, page_number: row.page_number ? row.page_number : recommended });
+                              }}
+                              disabled={!selectedSourceStoreId || sourceRegisterOptions.length === 0}
+                              options={sourceRegisterOptions.map(register => ({ value: String(register.id), label: register.register_number, meta: register.last_page_number ? `last page ${register.last_page_number}` : register.store_name ?? undefined }))}
+                              ariaLabel="Select source register"
+                            />
+                          </div>
+                          <Button type="button" variant="outline" size="sm" onClick={() => openNewRegister(index)} disabled={!selectedSourceStoreId} title={selectedSourceStoreId ? "Create a new register for this store" : "Pick a store first"}>
+                            + New
+                          </Button>
+                        </div>
                       </Field>
-                      <Field label="Page Number">
-                        <input className="input" type="number" min="1" value={row.page_number} onChange={event => updateRow(index, { page_number: event.target.value })} placeholder="Optional" />
+                      <Field label="Page Number" hint={(() => {
+                        const picked = mergedRegisters.find(reg => String(reg.id) === row.stock_register);
+                        if (!picked) return "Optional: page of the register where this is written.";
+                        const next = (picked.last_page_number ?? 0) + 1;
+                        return `Recommended next page: ${next}`;
+                      })()}>
+                        <input className="input" type="number" min="1" value={row.page_number} onChange={event => updateRow(index, { page_number: event.target.value })} placeholder={(() => {
+                          const picked = mergedRegisters.find(reg => String(reg.id) === row.stock_register);
+                          return picked ? String((picked.last_page_number ?? 0) + 1) : "Optional";
+                        })()} />
                       </Field>
                     </div>
                   </div>
@@ -1447,6 +1621,38 @@ function StockEntryModal({ open, mode, entry, refs: baseRefs, refsLoading: baseR
             <Button type="button"  onClick={() => { void submitManually("submit"); }} disabled={!canSubmit}>{submitting ? "Saving…" : mode === "edit" ? "Save Changes" : "Create Entry"}</Button>
           </div>
         </div>
+
+        {newRegisterRowIndex != null && (
+          <div className="modal-backdrop" style={{ zIndex: 60 }} onMouseDown={e => { if (e.target === e.currentTarget) closeNewRegister(); }}>
+            <div className="modal" role="dialog" aria-modal="true" style={{ maxWidth: 440 }}>
+              <div className="modal-head">
+                <h2>Create new register</h2>
+                <button type="button" className="modal-close" onClick={closeNewRegister} aria-label="Close">×</button>
+              </div>
+              <div className="modal-body">
+                <div style={{ padding: "16px 20px", display: "grid", gap: 10 }}>
+                  <div className="login-cell-sub">
+                    A fresh register (hand-written ledger) for the selected store. Every stock movement for this store can later reference its pages.
+                  </div>
+                  {newRegisterError && (
+                    <div style={{ padding: "8px 12px", background: "var(--danger-weak)", border: "1px solid color-mix(in oklch, var(--danger) 30%, transparent)", borderRadius: "var(--radius)", color: "var(--danger)", fontSize: 13 }}>{newRegisterError}</div>
+                  )}
+                  <div className="field">
+                    <div className="field-label">Register number <span className="field-req">*</span></div>
+                    <input className="input" value={newRegisterNumber} onChange={e => setNewRegisterNumber(e.target.value.toUpperCase())} placeholder="e.g. REG-001" autoFocus spellCheck={false} />
+                    <div className="field-hint">Short unique label for this store&apos;s register book.</div>
+                  </div>
+                </div>
+              </div>
+              <div className="modal-foot">
+                <div className="modal-foot-actions" style={{ display: "flex", gap: 8, justifyContent: "flex-end", padding: "12px 20px" }}>
+                  <Button type="button" variant="outline" onClick={closeNewRegister} disabled={newRegisterBusy}>Cancel</Button>
+                  <Button type="button" onClick={() => { void submitNewRegister(); }} disabled={newRegisterBusy}>{newRegisterBusy ? "Creating…" : "Create register"}</Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1461,8 +1667,8 @@ function RowActions({ entry, acknowledgeEntry, canEdit, canDelete, pageBusy, del
   return (
     <div className="row-actions">
       {showAcknowledge && <Button type="button" size="xs" className="row-action ack-action" onClick={event => { event.stopPropagation(); onAcknowledge(ackTarget); }} disabled={pageBusy}><Ic d="M20 6L9 17l-5-5" size={13} /><span className="ra-label">{ackBusy ? "Acknowledging…" : "Acknowledge"}</span></Button>}
-      {showEdit && <Button type="button" variant="ghost" size="xs" className="row-action" onClick={event => { event.stopPropagation(); onEdit(); }} disabled={pageBusy}><Ic d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" size={13} /><span className="ra-label">Edit</span></Button>}
-      {showDelete && <Button type="button" variant="outline" size="xs" className="btn-danger-ghost row-action" onClick={event => { event.stopPropagation(); onDelete(); }} disabled={pageBusy}><Ic d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0l1 12h6l1-12" size={13} /><span className="ra-label">{deleteBusy ? "Deleting…" : "Delete"}</span></Button>}
+      {showEdit && <Button type="button" variant="ghost" size="xs" className="row-action" onClick={event => { event.stopPropagation(); onEdit(); }} disabled={pageBusy}><Ic d="M12 20h9 M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" size={13} /><span className="ra-label">Edit</span></Button>}
+      {showDelete && <Button type="button" variant="outline" size="xs" className="btn-danger-ghost row-action" onClick={event => { event.stopPropagation(); onDelete(); }} disabled={pageBusy}><Ic d="M3 6h18 M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6 M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2 M10 11v6 M14 11v6" size={13} /><span className="ra-label">{deleteBusy ? "Deleting…" : "Delete"}</span></Button>}
     </div>
   );
 }
@@ -1481,7 +1687,7 @@ export function StockEntriesView() {
   const [entryCount, setEntryCount] = useState(0);
   const entriesRequestRef = useRef(0);
 
-  const [refs, setRefs] = useState<ReferenceData>({ items: [], batches: [], locations: [], persons: [], registers: [], allocations: [], stockRecords: [], instances: [] });
+  const [refs, setRefs] = useState<ReferenceData>({ items: [], batches: [], locations: [], persons: [], registers: [], allocations: [], stockRecords: [], instances: [], vendors: [] });
   const [isLoading, setIsLoading] = useState(true);
   const [refsLoading, setRefsLoading] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -1502,6 +1708,7 @@ export function StockEntriesView() {
   const refsLoadedRef = useRef(false);
   const refsPromiseRef = useRef<Promise<boolean> | null>(null);
   const replacementOpenedRef = useRef<string | null>(null);
+  const editOpenedRef = useRef<string | null>(null);
 
   const loadRefs = useCallback(async () => {
     if (!canManage) return true;
@@ -1510,12 +1717,13 @@ export function StockEntriesView() {
     setRefsLoading(true);
     const promise = (async () => {
       try {
-        const [locationsData, personsData, registersData] = await Promise.all([
+        const [locationsData, personsData, registersData, vendorsData] = await Promise.all([
           fetchAllPages<LocationRecord>("/api/inventory/locations/?page_size=500"),
           fetchAllPages<PersonRecord>("/api/inventory/persons/?page_size=500"),
           fetchAllPages<StockRegisterRecord>("/api/inventory/stock-registers/?page_size=500"),
+          fetchAllPages<VendorRefRecord>("/api/inventory/vendors/?page_size=500"),
         ]);
-        setRefs({ items: [], batches: [], locations: locationsData, persons: personsData, registers: registersData, allocations: [], stockRecords: [], instances: [] });
+        setRefs({ items: [], batches: [], locations: locationsData, persons: personsData, registers: registersData, allocations: [], stockRecords: [], instances: [], vendors: vendorsData.filter(v => v.is_active) });
         refsLoadedRef.current = true;
         return true;
       } catch (err) {
@@ -1580,22 +1788,46 @@ export function StockEntriesView() {
     setStoreScope(searchParams.get("store") ?? "all");
 
     const replacementFor = searchParams.get("replacement_for");
-    if (!replacementFor || !canManage || isLoading || replacementOpenedRef.current === replacementFor) return;
-    replacementOpenedRef.current = replacementFor;
-    const source = entries.find(entry => String(entry.id) === replacementFor);
-    void (async () => {
-      try {
-        const replacementSource = source ?? await apiFetch<StockEntryRecord>(`/api/inventory/stock-entries/${encodeURIComponent(replacementFor)}/`);
-        setModalMode("create");
-        setEditingEntry(replacementSource);
-        setModalOpen(true);
-        void loadRefs();
-        router.replace("/stock-entries");
-      } catch (error) {
-        setFetchError(error instanceof Error ? error.message : "Unable to load correction source.");
-        replacementOpenedRef.current = null;
-      }
-    })();
+    const editTarget = searchParams.get("edit");
+    if (replacementFor && canManage && !isLoading && replacementOpenedRef.current !== replacementFor) {
+      replacementOpenedRef.current = replacementFor;
+      const source = entries.find(entry => String(entry.id) === replacementFor);
+      void (async () => {
+        try {
+          const replacementSource = source ?? await apiFetch<StockEntryRecord>(`/api/inventory/stock-entries/${encodeURIComponent(replacementFor)}/`);
+          setModalMode("create");
+          setEditingEntry(replacementSource);
+          setModalOpen(true);
+          void loadRefs();
+          router.replace("/stock-entries");
+        } catch (error) {
+          setFetchError(error instanceof Error ? error.message : "Unable to load correction source.");
+          replacementOpenedRef.current = null;
+        }
+      })();
+    }
+
+    if (editTarget && canManage && !isLoading && editOpenedRef.current !== editTarget) {
+      editOpenedRef.current = editTarget;
+      const source = entries.find(entry => String(entry.id) === editTarget);
+      void (async () => {
+        try {
+          const editSource = source ?? await apiFetch<StockEntryRecord>(`/api/inventory/stock-entries/${encodeURIComponent(editTarget)}/`);
+          if (editSource.status !== "DRAFT") {
+            setFetchError("Only draft stock entries can be edited. Cancel or correct this entry instead.");
+          } else {
+            setModalMode("edit");
+            setEditingEntry(editSource);
+            setModalOpen(true);
+            void loadRefs();
+          }
+          router.replace("/stock-entries");
+        } catch (error) {
+          setFetchError(error instanceof Error ? error.message : "Unable to load entry for editing.");
+          editOpenedRef.current = null;
+        }
+      })();
+    }
   }, [canManage, entries, isLoading, loadRefs, router, searchParams]);
 
   const movementEntries = useMemo(() => getStockEntryMovementRows(entries), [entries]);
@@ -1879,11 +2111,17 @@ export function StockEntriesView() {
 
         <div className="filter-bar">
           <div className="filter-bar-left">
-            <div className="search-input">
+            <label className="search-input">
               <Ic d={<><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></>} size={14} />
-              <input placeholder="Search entry number, item, location, employee, or purpose…" value={search} onChange={event => setSearch(event.target.value)} />
-              {search && <button type="button" className="clear-search" onClick={() => setSearch("")}>×</button>}
-            </div>
+              <input
+                placeholder="Search entry number, item, location, employee, or purpose…"
+                value={search}
+                onChange={event => setSearch(event.target.value)}
+                onClick={e => { if (!e.currentTarget.value) e.currentTarget.setSelectionRange(0, 0); }}
+                onFocus={e => { if (!e.currentTarget.value) e.currentTarget.setSelectionRange(0, 0); }}
+              />
+              {search && <button type="button" className="clear-search" onClick={e => { e.preventDefault(); setSearch(""); }}>×</button>}
+            </label>
             <div className="filter-select-group">
               <div className="chip-filter-label">Status</div>
               <div className="filter-select-wrap">
@@ -1972,7 +2210,7 @@ export function StockEntriesView() {
               </div>
             )}
             <ListPagination
-              summary={filteredEntries.length === 0 ? "Showing 0 stock entries" : `Showing ${pageStart}-${pageEnd} of ${entryCount} stock entries`}
+              summary={formatListSummary(entryCount, pageStart, pageEnd, "stock entry", "stock entries")}
               page={page}
               totalPages={totalPages}
               onPrev={() => setPage(current => Math.max(1, current - 1))}
@@ -2000,7 +2238,7 @@ export function StockEntriesView() {
         ) : <div className="table-card"><div style={{ padding: 24, textAlign: "center", color: "var(--muted)" }}>No stock entries match the current filters.</div></div>}
         {mode === "grid" && filteredEntries.length > 0 ? (
           <ListPagination
-            summary={`Showing ${pageStart}-${pageEnd} of ${entryCount} stock entries`}
+            summary={formatListSummary(entryCount, pageStart, pageEnd, "stock entry", "stock entries")}
             page={page}
             totalPages={totalPages}
             onPrev={() => setPage(current => Math.max(1, current - 1))}

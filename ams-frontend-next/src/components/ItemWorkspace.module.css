@@ -1,5 +1,5 @@
 /* ============================================================
-   Items workspace — list + unified detail
+   Items workspace -list + unified detail
    Aligned with the design bundle's items.css (Apr 2026 handoff).
    Uses the same tokens already declared in src/app/globals.css.
    ============================================================ */
@@ -356,21 +356,21 @@
 }
 
 .itemTableIcon[data-tracking="individual"] {
-  background: oklch(0.97 0.02 270);
-  border-color: oklch(0.9 0.05 270);
-  color: oklch(0.45 0.12 270);
+  background: color-mix(in oklch, var(--tracking-individual) 14%, var(--card));
+  border-color: color-mix(in oklch, var(--tracking-individual) 30%, transparent);
+  color: color-mix(in oklch, var(--tracking-individual) 78%, var(--ink));
 }
 
 .itemTableIcon[data-tracking="quantity"] {
-  background: oklch(0.97 0.018 200);
-  border-color: oklch(0.9 0.04 200);
-  color: oklch(0.45 0.08 220);
+  background: color-mix(in oklch, var(--success) 14%, var(--card));
+  border-color: color-mix(in oklch, var(--success) 30%, transparent);
+  color: color-mix(in oklch, var(--success) 78%, var(--ink));
 }
 
 .itemTableIcon[data-tracking="perishable"] {
-  background: oklch(0.97 0.025 80);
-  border-color: oklch(0.9 0.05 80);
-  color: oklch(0.5 0.13 70);
+  background: color-mix(in oklch, var(--warn) 14%, var(--card));
+  border-color: color-mix(in oklch, var(--warn) 30%, transparent);
+  color: color-mix(in oklch, var(--warn) 78%, var(--ink));
 }
 
 .itemsListTable {
@@ -435,15 +435,47 @@
 .itemsListNumberCell {
   overflow: hidden;
   text-overflow: ellipsis;
+  text-align: center !important;
+  font-variant-numeric: tabular-nums;
+  min-width: 90px;
+}
+.itemsListUnit {
+  margin-left: 4px;
+  color: var(--muted);
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+/* Center-align chip/pill cells (tracking, locations, status) */
+.itemsListTrackingCell,
+.itemsListLocationCell,
+.itemsListStatusCell {
+  text-align: center !important;
+}
+.itemsListTrackingCell :global(.chip),
+.itemsListLocationCell :global(.chip-loc),
+.itemsListStatusCell :global(.pill) {
+  display: inline-flex;
+  justify-content: center;
 }
 
 .itemsListLocationCell :global(.chip-loc) {
-  justify-content: flex-start;
+  justify-content: center;
+}
+.itemsListStatusCell :global(.group-cell) {
+  flex-wrap: nowrap;
+  justify-content: center;
+  gap: 6px;
+}
+
+.itemsListLocationCell :global(.chip-loc) {
+  justify-content: center;
 }
 
 .itemsListStatusCell :global(.group-cell) {
   flex-wrap: nowrap;
-  justify-content: flex-start;
+  justify-content: center;
   gap: 6px;
 }
 
@@ -451,10 +483,14 @@
   min-width: 0;
 }
 
+.itemsListUpdatedCell {
+  text-align: center !important;
+}
 .itemsListUpdatedCell :global(.login-cell) {
-  width: max-content;
+  display: inline-block;
   max-width: 100%;
   white-space: nowrap;
+  text-align: center;
 }
 
 .itemsListActionsCell {
@@ -1393,7 +1429,7 @@
   margin-top: 10px;
 }
 
-/* 3-column compact variant — 6 items become 2 rows instead of 3 */
+/* 3-column compact variant -6 items become 2 rows instead of 3 */
 .infoKvs3 {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

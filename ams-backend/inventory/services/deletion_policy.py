@@ -41,9 +41,9 @@ def _has_related(instance, related_name, to_attr=None):
     return _has(getattr(instance, related_name).all())
 
 
-def category_delete_blockers(category):
+def category_delete_blockers(category, *, cascade_subcategories=False):
     blockers = []
-    if _has(category.subcategories.all()):
+    if not cascade_subcategories and _has(category.subcategories.all()):
         blockers.append("This category has subcategories.")
     if _has(category.items.all()):
         blockers.append("This category is linked to inventory items.")
@@ -193,9 +193,9 @@ def stock_entry_delete_blockers(entry):
     return blockers
 
 
-def get_delete_blockers(instance):
+def get_delete_blockers(instance, *, cascade_subcategories=False):
     if isinstance(instance, Category):
-        return category_delete_blockers(instance)
+        return category_delete_blockers(instance, cascade_subcategories=cascade_subcategories)
     if isinstance(instance, Item):
         return item_delete_blockers(instance)
     if isinstance(instance, Location):
@@ -211,8 +211,8 @@ def can_delete(instance):
     return not get_delete_blockers(instance)
 
 
-def delete_with_policy(instance):
-    blockers = get_delete_blockers(instance)
+def delete_with_policy(instance, *, cascade_subcategories=False):
+    blockers = get_delete_blockers(instance, cascade_subcategories=cascade_subcategories)
     if blockers:
         raise DeletionBlocked(blockers)
 

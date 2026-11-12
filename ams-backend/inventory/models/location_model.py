@@ -18,6 +18,7 @@ TAG_COLOR_PALETTE = [
 ]
 
 class LocationType(models.TextChoices):
+    UNIVERSITY = 'UNIVERSITY', 'University'
     DEPARTMENT = 'DEPARTMENT', 'Department'
     BUILDING = 'BUILDING', 'Building'
     STORE = 'STORE', 'Store'
@@ -246,14 +247,24 @@ class Location(models.Model):
         super().save(*args, **kwargs)
 
     def generate_location_code(self):
-        last_location = Location.objects.order_by('-id').first()
-        next_seq = (last_location.id + 1) if last_location else 1
         type_prefix = {
-            'DEPARTMENT': 'DEPT', 'BUILDING': 'BLDG', 'STORE': 'STR',
-            'ROOM': 'ROOM', 'LAB': 'LAB', 'JUNKYARD': 'JUNK',
+            'UNIVERSITY': 'UNI', 'DEPARTMENT': 'DEPT', 'BUILDING': 'BLDG',
+            'STORE': 'STR', 'ROOM': 'ROOM', 'LAB': 'LAB', 'JUNKYARD': 'JUNK',
             'OFFICE': 'OFFC', 'AV_HALL': 'AVHL', 'AUDITORIUM': 'AUDI',
+            'OTHER': 'OTHR',
         }.get(self.location_type, 'LOC')
-        
+
+        # Per-type sequence: find the highest existing suffix for this prefix
+        # and start just above it. Falls back to 1 for a fresh prefix.
+        import re
+        existing_codes = Location.objects.filter(code__startswith=f"{type_prefix}-").values_list('code', flat=True)
+        max_seq = 0
+        for code in existing_codes:
+            match = re.match(rf"^{re.escape(type_prefix)}-(\d+)$", code)
+            if match:
+                max_seq = max(max_seq, int(match.group(1)))
+        next_seq = max_seq + 1
+
         while True:
             code = f"{type_prefix}-{next_seq:04d}"
             if not Location.objects.filter(code=code).exists():

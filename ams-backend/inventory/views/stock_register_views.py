@@ -1,9 +1,12 @@
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework import viewsets, permissions, filters, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from ..models.stock_register_model import StockRegister
+from ..models.stockentry_model import StockEntry
 from ..serializers.stock_register_serializer import StockRegisterSerializer
+from ..serializers.stockentry_serializer import StockEntrySerializer
 from ..permissions import StockRegisterPermission
 from ..services.deletion_policy import DeletionBlocked, delete_with_policy
 from notifications.services import notify_stock_register_closed, notify_stock_register_reopened
@@ -67,6 +70,36 @@ class StockRegisterViewSet(viewsets.ModelViewSet):
         notify_stock_register_closed(register, request.user)
         serializer = self.get_serializer(register)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['get'], url_path='entries')
+    def entries(self, request, pk=None):
+        """
+        Returns all distinct StockEntry rows whose items reference this
+        register on either the source side (items.stock_register) or the
+        acknowledgment side (items.ack_stock_register).
+        """
+        register = self.get_object()  # enforces scope via get_queryset
+        qs = (
+            StockEntry.objects
+            .filter(
+                Q(items__stock_register_id=register.pk)
+                | Q(items__ack_stock_register_id=register.pk)
+            )
+            .distinct()
+            .select_related('vendor', 'from_location', 'to_location', 'created_by')
+            .prefetch_related('items')
+            .order_by('-created_at')
+        )
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            serializer = StockEntrySerializer(
+                page, many=True, context=self.get_serializer_context()
+            )
+            return self.get_paginated_response(serializer.data)
+        serializer = StockEntrySerializer(
+            qs, many=True, context=self.get_serializer_context()
+        )
+        return Response(serializer.data)
 
     @action(detail=True, methods=['post'])
     def reopen(self, request, pk=None):

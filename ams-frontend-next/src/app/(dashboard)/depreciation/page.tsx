@@ -9,6 +9,7 @@ import { Topbar } from "@/components/Topbar";
 import { useCan, useCapabilities } from "@/contexts/CapabilitiesContext";
 import { apiFetch, type Page } from "@/lib/api";
 import { useClientPagination } from "@/lib/listPagination";
+import { formatListSummary } from "@/lib/userUiShared";
 import { formatItemDate, formatItemLabel, formatQuantity, toNumber, type DepreciationSummary } from "@/lib/itemUi";
 import { Button } from "@/components/ui/button";
 
@@ -579,6 +580,9 @@ export default function DepreciationPage() {
 
   const reverseRun = async (runId: number) => {
     if (!canFull) return;
+    if (!window.confirm(`Reverse depreciation run #${runId}? Posted journal entries will be undone. This cannot be undone.`)) {
+      return;
+    }
     setBusy(`reverse-${runId}`);
     setError(null);
     try {
@@ -798,11 +802,17 @@ export default function DepreciationPage() {
           <div style={{ display: "grid", gap: 16 }}>
             <div className="filter-bar">
               <div className="filter-bar-left">
-                <div className="search-input">
+                <label className="search-input">
                   <Icon d={<><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></>} size={14} />
-                  <input placeholder="Search asset number, item, class, serial, or lot..." value={search} onChange={event => setSearch(event.target.value)} />
-                  {search ? <button type="button" className="clear-search" onClick={() => setSearch("")}>x</button> : null}
-                </div>
+                  <input
+                    placeholder="Search asset number, item, class, serial, or lot..."
+                    value={search}
+                    onChange={event => setSearch(event.target.value)}
+                    onClick={e => { if (!e.currentTarget.value) e.currentTarget.setSelectionRange(0, 0); }}
+                    onFocus={e => { if (!e.currentTarget.value) e.currentTarget.setSelectionRange(0, 0); }}
+                  />
+                  {search ? <button type="button" className="clear-search" onClick={e => { e.preventDefault(); setSearch(""); }}>x</button> : null}
+                </label>
               </div>
             </div>
 
@@ -868,7 +878,7 @@ export default function DepreciationPage() {
                 </div>
               )}
               <ListPagination
-                summary={filteredAssets.length === 0 ? "Showing 0 fixed asset register entries" : `Showing ${registerPageStart}-${registerPageEnd} of ${filteredAssets.length} fixed asset register entries`}
+                summary={formatListSummary(filteredAssets.length, registerPageStart, registerPageEnd, "fixed asset register entry", "fixed asset register entries")}
                 page={registerPage}
                 totalPages={registerTotalPages}
                 onPrev={() => setRegisterPage(current => Math.max(1, current - 1))}
@@ -982,7 +992,7 @@ export default function DepreciationPage() {
                 </table>
               </div>
               <ListPagination
-                summary={runs.length === 0 ? "Showing 0 annual runs" : `Showing ${runsPageStart}-${runsPageEnd} of ${runs.length} annual runs`}
+                summary={formatListSummary(runs.length, runsPageStart, runsPageEnd, "annual run", "annual runs")}
                 page={runsPage}
                 totalPages={runsTotalPages}
                 onPrev={() => setRunsPage(current => Math.max(1, current - 1))}
@@ -1016,13 +1026,13 @@ export default function DepreciationPage() {
                           <div>
                             <div className="eyebrow">Rate</div>
                             <div style={{ fontSize: 13, fontWeight: 550, color: "var(--ink)" }}>
-                              {row.currentRate ? `${row.currentRate.rate}%` : "—"}
+                              {row.currentRate ? `${row.currentRate.rate}%` : "-"}
                             </div>
                           </div>
                           <div>
                             <div className="eyebrow">Effective from</div>
                             <div style={{ fontSize: 12, color: "var(--ink-2)" }}>
-                              {row.currentRate ? formatItemDate(row.currentRate.effective_from) : "—"}
+                              {row.currentRate ? formatItemDate(row.currentRate.effective_from) : "-"}
                             </div>
                           </div>
                         </div>
@@ -1041,7 +1051,7 @@ export default function DepreciationPage() {
                           ) : null}
                           {canManage && row.categoryId ? (
                             <Button type="button" variant="ghost" size="xs" className="row-action" onClick={() => openRateModal(row.categoryId)}>
-                              <Icon d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" size={13} />
+                              <Icon d="M12 20h9 M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" size={13} />
                               <span className="ra-label">{row.assetClass ? "Update rate" : "Set rate"}</span>
                             </Button>
                           ) : null}
@@ -1053,7 +1063,7 @@ export default function DepreciationPage() {
                 )}
                 {depreciationSetupRows.length > 0 ? (
                   <ListPagination
-                    summary={`Showing ${setupPageStart}-${setupPageEnd} of ${depreciationSetupRows.length} setup rows`}
+                    summary={formatListSummary(depreciationSetupRows.length, setupPageStart, setupPageEnd, "setup row", "setup rows")}
                     page={setupPage}
                     totalPages={setupTotalPages}
                     onPrev={() => setSetupPage(current => Math.max(1, current - 1))}
@@ -1103,7 +1113,7 @@ export default function DepreciationPage() {
                   </table>
                 </div>
                 <ListPagination
-                  summary={depreciationSetupRows.length === 0 ? "Showing 0 setup rows" : `Showing ${setupPageStart}-${setupPageEnd} of ${depreciationSetupRows.length} setup rows`}
+                  summary={formatListSummary(depreciationSetupRows.length, setupPageStart, setupPageEnd, "setup row", "setup rows")}
                   page={setupPage}
                   totalPages={setupTotalPages}
                   onPrev={() => setSetupPage(current => Math.max(1, current - 1))}
@@ -1153,7 +1163,7 @@ export default function DepreciationPage() {
                 </table>
               </div>
               <ListPagination
-                summary={uncapitalized.length === 0 ? "Showing 0 assets waiting for capitalization" : `Showing ${capitalizePageStart}-${capitalizePageEnd} of ${uncapitalized.length} assets waiting for capitalization`}
+                summary={formatListSummary(uncapitalized.length, capitalizePageStart, capitalizePageEnd, "asset waiting for capitalization", "assets waiting for capitalization")}
                 page={capitalizePage}
                 totalPages={capitalizeTotalPages}
                 onPrev={() => setCapitalizePage(current => Math.max(1, current - 1))}
@@ -1197,7 +1207,7 @@ export default function DepreciationPage() {
                 </table>
               </div>
               <ListPagination
-                summary={adjustments.length === 0 ? "Showing 0 adjustments" : `Showing ${adjustmentsPageStart}-${adjustmentsPageEnd} of ${adjustments.length} adjustments`}
+                summary={formatListSummary(adjustments.length, adjustmentsPageStart, adjustmentsPageEnd, "adjustment", "adjustments")}
                 page={adjustmentsPage}
                 totalPages={adjustmentsTotalPages}
                 onPrev={() => setAdjustmentsPage(current => Math.max(1, current - 1))}

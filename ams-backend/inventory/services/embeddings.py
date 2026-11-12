@@ -1,7 +1,7 @@
 """
 Embedding client for the agent's hybrid item search.
 
-OpenAI-compatible HTTP API only — the BASE_URL is configurable so this works
+OpenAI-compatible HTTP API only: the BASE_URL is configurable so this works
 against OpenRouter (default, for testing) or OpenAI directly (production).
 
 Public surface:
@@ -9,7 +9,7 @@ Public surface:
     embed_item(item) -> tuple[hash, vector | None]
     build_item_embedding_text(item) -> str
 
-We never raise on transient API failures — embedding is best-effort. The
+We never raise on transient API failures, embedding is best-effort. The
 caller (post_save signal, backfill command) records the failure and the
 nightly backfill retries.
 """
@@ -45,7 +45,7 @@ def _get_client():
     api_key = (settings.EMBEDDING_API_KEY or '').strip()
     if not api_key:
         logger.warning(
-            "EMBEDDING_API_KEY is not set — embeddings disabled. "
+            "EMBEDDING_API_KEY is not set, embeddings disabled. "
             "Set EMBEDDING_API_KEY to your OpenRouter or OpenAI key."
         )
         return None

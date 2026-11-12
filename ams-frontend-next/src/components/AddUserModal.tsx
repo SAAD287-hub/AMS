@@ -1,11 +1,19 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
-import { apiFetch, type Page } from "@/lib/api";
+import { API_BASE, apiFetch, type Page } from "@/lib/api";
 import { type Location, type User } from "@/lib/userUiShared";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { DropdownPortal } from "@/components/DropdownPortal";
+
+// Maximum allowed avatar upload size: 2 MB.
+const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
+
+function mediaUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  return value.startsWith("http") ? value : `${API_BASE}${value}`;
+}
 
 // ── Backend API types ─────────────────────────────────────────────────────────
 
@@ -569,12 +577,55 @@ export function AddUserModal({
   const [userLoading, setUserLoading] = useState(false);
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
 
+  // Avatar upload state
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [existingAvatarUrl, setExistingAvatarUrl] = useState<string | null>(null);
+  const [removeAvatar, setRemoveAvatar] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Keep a preview object URL in sync with the selected file.
+  useEffect(() => {
+    if (!avatarFile) {
+      setAvatarPreview(null);
+      return;
+    }
+    const url = URL.createObjectURL(avatarFile);
+    setAvatarPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [avatarFile]);
+
   // Real data from API
   const [groups, setGroups] = useState<ApiGroup[]>([]);
   const [locations, setLocations] = useState<AssignableLocation[]>([]);
   const [groupsLoading, setGroupsLoading] = useState(false);
   const [locationsLoading, setLocationsLoading] = useState(false);
   const [dataLoadError, setDataLoadError] = useState<{ groups: string | null; locations: string | null }>({ groups: null, locations: null });
+
+  // Roles / Groups dropdown state
+  const [rolesOpen, setRolesOpen] = useState(false);
+  const rolesRootRef = useRef<HTMLDivElement | null>(null);
+  const rolesMenuRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!rolesOpen) return;
+    const close = () => setRolesOpen(false);
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && rolesRootRef.current?.contains(target)) return;
+      if (target instanceof Node && rolesMenuRef.current?.contains(target)) return;
+      close();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [rolesOpen]);
 
   useEffect(() => {
     if (!open) return;
@@ -638,6 +689,10 @@ export function AddUserModal({
     setUserLoading(false);
     setPasswordModalOpen(false);
     setForm(mode === "edit" && user ? formFromUser(user) : emptyForm());
+    setAvatarFile(null);
+    setAvatarError(null);
+    setRemoveAvatar(false);
+    setExistingAvatarUrl(mode === "edit" && user?.avatar_url ? user.avatar_url : null);
   }, [open, mode, user]);
 
   useEffect(() => {
@@ -651,6 +706,7 @@ export function AddUserModal({
       .then(detail => {
         if (cancelled) return;
         setForm(formFromUser(detail));
+        setExistingAvatarUrl(detail.avatar_url ?? null);
       })
       .catch(err => {
         if (cancelled) return;
@@ -720,6 +776,38 @@ export function AddUserModal({
     return null;
   })();
 
+  // Permission to edit the avatar on this user: either the opener has admin
+  // permissions (same gating as Identity edits), or the user is editing their
+  // own account (backend whitelists `avatar` for self-edit).
+  const canEditAvatar = mode === "create"
+    ? (canAssignLocations || canAssignRoles)
+    : (canAssignLocations || canAssignRoles || editingOwnAccount);
+
+  const handleAvatarPick = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    // Reset the input so re-selecting the same file re-fires the event.
+    event.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setAvatarError("Only image files are allowed.");
+      return;
+    }
+    if (file.size > AVATAR_MAX_BYTES) {
+      setAvatarError("Image must be 2 MB or smaller.");
+      return;
+    }
+    setAvatarError(null);
+    setAvatarFile(file);
+    setRemoveAvatar(false);
+  };
+
+  const handleAvatarRemove = () => {
+    setAvatarError(null);
+    setAvatarFile(null);
+    // Only queue an explicit removal if there's a server-side avatar to clear.
+    if (existingAvatarUrl) setRemoveAvatar(true);
+  };
+
   const suggestUsername = () => {
     if (touched.has("username")) return;
     const fn = form.first_name.trim().toLowerCase();
@@ -740,39 +828,74 @@ export function AddUserModal({
       hasAssignedStore,
     });
     if (Object.keys(errs).length > 0) return;
+    if (avatarError) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const payload: Record<string, unknown> = {
-        username: form.username,
-        email: form.email,
-        first_name: form.first_name,
-        last_name: form.last_name,
-        is_active: form.is_active,
-      };
+      const hasAvatarChange = canEditAvatar && (avatarFile !== null || removeAvatar);
 
-      if (canAssignLocations) {
-        payload.assigned_locations = form.locations;
-      }
+      let body: BodyInit;
+      if (hasAvatarChange) {
+        // multipart: the backend accepts `avatar` as an ImageField on the
+        // user-management serializer; arrays go as repeated form fields.
+        const fd = new FormData();
+        fd.append("username", form.username);
+        fd.append("email", form.email);
+        fd.append("first_name", form.first_name);
+        fd.append("last_name", form.last_name);
+        fd.append("is_active", form.is_active ? "true" : "false");
+        if (canAssignLocations) {
+          form.locations.forEach(id => fd.append("assigned_locations", String(id)));
+          if (form.locations.length === 0) fd.append("assigned_locations", "");
+        }
+        if (canAssignRoles) {
+          form.groups.forEach(id => fd.append("groups", String(id)));
+          if (form.groups.length === 0) fd.append("groups", "");
+        }
+        if (!isEditMode || form.password.length > 0) {
+          fd.append("password", form.password);
+        }
+        if (avatarFile) {
+          fd.append("avatar", avatarFile);
+        } else if (removeAvatar) {
+          // Empty string clears the ImageField via DRF multipart semantics.
+          fd.append("avatar", "");
+        }
+        body = fd;
+      } else {
+        const payload: Record<string, unknown> = {
+          username: form.username,
+          email: form.email,
+          first_name: form.first_name,
+          last_name: form.last_name,
+          is_active: form.is_active,
+        };
 
-      if (canAssignRoles) {
-        payload.groups = form.groups;
-      }
+        if (canAssignLocations) {
+          payload.assigned_locations = form.locations;
+        }
 
-      if (!isEditMode || form.password.length > 0) {
-        payload.password = form.password;
+        if (canAssignRoles) {
+          payload.groups = form.groups;
+        }
+
+        if (!isEditMode || form.password.length > 0) {
+          payload.password = form.password;
+        }
+
+        body = JSON.stringify(payload);
       }
 
       let savedUser: UserManagementDetail;
       if (isEditMode && user) {
         savedUser = await apiFetch<UserManagementDetail>(`/api/users/management/${user.id}/`, {
           method: "PATCH",
-          body: JSON.stringify(payload),
+          body,
         });
       } else {
         savedUser = await apiFetch<UserManagementDetail>("/api/users/management/", {
           method: "POST",
-          body: JSON.stringify(payload),
+          body,
         });
       }
 
@@ -807,6 +930,12 @@ export function AddUserModal({
 
         {/* Body */}
         <div className="modal-body">
+          <div className="stock-entry-help" style={{ margin: "0 0 16px" }}>
+            <div className="stock-entry-help-title">Adding a user</div>
+            <div className="stock-entry-help-body">
+              Create a login account for someone who will use the system (store keeper, lab in-charge, department admin). Pick a <strong>role</strong> to decide what they can do, and assign one or more <strong>locations</strong> to decide what they can see. Hierarchy is inherited: assign a department and they can access its labs/rooms too.
+            </div>
+          </div>
           {loadStatusMessage && (
             <div style={{ padding: "10px 14px", background: "var(--warning-weak)", border: "1px solid color-mix(in oklch, var(--warning) 30%, transparent)", borderRadius: "var(--radius)", color: "var(--text-1)", fontSize: 13, marginBottom: 16 }}>
               {loadStatusMessage}
@@ -821,6 +950,72 @@ export function AddUserModal({
           {/* 01 Identity */}
           <Section n={1} title="Identity">
             <div className="form-grid cols-2">
+              {canEditAvatar && (
+                <Field label="Profile picture" span={2} error={avatarError ?? undefined} hint="PNG, JPG, GIF, or WebP. Max 2 MB.">
+                  <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                    {(() => {
+                      // Build initials from name fallback for the preview circle.
+                      const nameSource = `${form.first_name} ${form.last_name}`.trim() || form.username || "?";
+                      const initials = nameSource
+                        .split(/\s+/)
+                        .map(part => part[0])
+                        .filter(Boolean)
+                        .slice(0, 2)
+                        .join("")
+                        .toUpperCase();
+                      const showUrl = avatarPreview
+                        ? avatarPreview
+                        : (!removeAvatar ? mediaUrl(existingAvatarUrl) : null);
+                      return (
+                        <div
+                          className="avatar"
+                          style={{
+                            width: 56,
+                            height: 56,
+                            fontSize: 18,
+                            background: "linear-gradient(135deg, color-mix(in oklch, var(--primary) 82%, white), var(--primary))",
+                            border: "1px solid color-mix(in oklch, var(--border) 85%, transparent)",
+                          }}
+                        >
+                          {showUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={showUrl} alt="" />
+                          ) : (
+                            initials
+                          )}
+                        </div>
+                      );
+                    })()}
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <input
+                        ref={avatarInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleAvatarPick}
+                        style={{ display: "none" }}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => avatarInputRef.current?.click()}
+                      >
+                        {avatarFile || existingAvatarUrl ? "Change photo" : "Upload photo"}
+                      </Button>
+                      {(avatarFile || (existingAvatarUrl && !removeAvatar)) && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={handleAvatarRemove}
+                        >
+                          Remove
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </Field>
+              )}
               <Field label="First name" required error={errors.first_name}>
                 <input value={form.first_name} onChange={e => set({ first_name: e.target.value })} onBlur={() => { blur("first_name"); suggestUsername(); }} />
               </Field>
@@ -951,39 +1146,86 @@ export function AddUserModal({
                   No roles exist yet. Create at least one role before adding users.
                 </div>
               ) : (
-                <div className={"group-grid" + (errors.groups ? " has-error" : "")}>
-                  {groups.map(g => {
-                    const checked = form.groups.includes(g.id);
-                    const disabled = selfAssignmentLocked;
-                    return (
-                      <label key={g.id} className={"group-card" + (checked ? " selected" : "") + (disabled ? " disabled" : "")}>
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          disabled={disabled}
-                          onChange={e => {
-                            if (disabled) return;
-                            set({ groups: e.target.checked ? [...form.groups, g.id] : form.groups.filter(x => x !== g.id) });
-                            blur("groups");
-                          }}
-                        />
-                        <div className="group-card-body">
-                          <div className="group-card-head">
-                            <span className="group-card-name">{g.name}</span>
-                            <span className="group-card-tier mono" style={{ fontSize: 11, color: "var(--text-2)" }}>
-                              {g.permissions_details.length} perm{g.permissions_details.length !== 1 ? "s" : ""}
-                            </span>
-                          </div>
-                          <div className="group-card-desc">
-                            {g.permissions_details.slice(0, 3).map(p => p.name).join(" · ") || "No permissions assigned"}
-                            {g.permissions_details.length > 3 && ` · +${g.permissions_details.length - 3} more`}
-                          </div>
+                <div
+                  ref={rolesRootRef}
+                  className={"assignment-dropdown" + (rolesOpen ? " open" : "") + (selfAssignmentLocked ? " disabled" : "") + (errors.groups ? " has-error" : "")}
+                  style={{ position: "relative" }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => { if (!selfAssignmentLocked) setRolesOpen(prev => !prev); }}
+                    disabled={selfAssignmentLocked}
+                    aria-expanded={rolesOpen}
+                    aria-haspopup="listbox"
+                    style={{
+                      width: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      padding: "10px 14px",
+                      border: "1px solid var(--border)",
+                      borderRadius: "var(--radius)",
+                      background: "var(--panel)",
+                      color: "var(--text-1)",
+                      fontSize: 13,
+                      textAlign: "left",
+                      cursor: selfAssignmentLocked ? "not-allowed" : "pointer",
+                      opacity: selfAssignmentLocked ? 0.6 : 1,
+                    }}
+                  >
+                    <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {(() => {
+                        const selected = groups.filter(g => form.groups.includes(g.id));
+                        if (selected.length === 0) return <span style={{ color: "var(--text-2)" }}>Select one or more roles</span>;
+                        const names = selected.map(g => g.name);
+                        const shown = names.slice(0, 3).join(", ");
+                        const extra = names.length > 3 ? ` +${names.length - 3} more` : "";
+                        return shown + extra;
+                      })()}
+                    </span>
+                    <span className="mono" style={{ fontSize: 11, color: "var(--text-2)", whiteSpace: "nowrap" }}>
+                      {form.groups.length} selected
+                    </span>
+                    <Ic d={rolesOpen ? "M18 15l-6-6-6 6" : "M6 9l6 6 6-6"} size={13} />
+                  </button>
+
+                  {rolesOpen && !selfAssignmentLocked && (
+                    <DropdownPortal anchorRef={rolesRootRef} className="assignment-menu">
+                      <div ref={rolesMenuRef}>
+                        <div className="group-grid" style={{ padding: 8, maxHeight: 360, overflowY: "auto" }}>
+                          {groups.map(g => {
+                            const checked = form.groups.includes(g.id);
+                            return (
+                              <label key={g.id} className={"group-card" + (checked ? " selected" : "")}>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={e => {
+                                    set({ groups: e.target.checked ? [...form.groups, g.id] : form.groups.filter(x => x !== g.id) });
+                                    blur("groups");
+                                  }}
+                                />
+                                <div className="group-card-body">
+                                  <div className="group-card-head">
+                                    <span className="group-card-name">{g.name}</span>
+                                    <span className="group-card-tier mono" style={{ fontSize: 11, color: "var(--text-2)" }}>
+                                      {g.permissions_details.length} perm{g.permissions_details.length !== 1 ? "s" : ""}
+                                    </span>
+                                  </div>
+                                  <div className="group-card-desc">
+                                    {g.permissions_details.slice(0, 3).map(p => p.name).join(" · ") || "No permissions assigned"}
+                                    {g.permissions_details.length > 3 && ` · +${g.permissions_details.length - 3} more`}
+                                  </div>
+                                </div>
+                              </label>
+                            );
+                          })}
+                          {groups.length === 0 && (
+                            <div style={{ color: "var(--text-2)", fontSize: 13, padding: "4px 0" }}>No groups found.</div>
+                          )}
                         </div>
-                      </label>
-                    );
-                  })}
-                  {groups.length === 0 && (
-                    <div style={{ color: "var(--text-2)", fontSize: 13, padding: "4px 0" }}>No groups found.</div>
+                      </div>
+                    </DropdownPortal>
                   )}
                 </div>
               )}

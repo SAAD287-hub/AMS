@@ -1,5 +1,5 @@
 /* ============================================================
-   NED AMS — Items module application
+   NED AMS - Items module application
    ============================================================ */
 
 (function () {
@@ -131,7 +131,7 @@
         <div class="id-empty">
           <div class="id-empty-art">${ICONS.box}</div>
           <h3>Select an item</h3>
-          <p>Pick an item from the list to see its full distribution across departments, sub-stores, persons and batches — all on one page.</p>
+          <p>Pick an item from the list to see its full distribution across departments, sub-stores, persons and batches, all on one page.</p>
         </div>`;
       return;
     }
@@ -147,8 +147,8 @@
       if (it.tracking === 'individual') {
         return `
           <div class="tot"><div class="tot-lbl">Total units</div><div class="tot-val">${it.totalQty}<span class="unit">${it.unit}</span></div><div class="tot-sub">across ${it.locationCount} locations</div></div>
-          <div class="tot"><div class="tot-lbl">Deployed</div><div class="tot-val">${it.deployed || '—'}</div><div class="tot-sub">in active use</div></div>
-          <div class="tot ${it.idle && it.idle > (it.minStock || 999) ? '' : 'warn'}"><div class="tot-lbl">Idle / Stock</div><div class="tot-val">${it.idle || 0}</div><div class="tot-sub">in stores · min ${it.minStock || '—'}</div></div>
+          <div class="tot"><div class="tot-lbl">Deployed</div><div class="tot-val">${it.deployed || '-'}</div><div class="tot-sub">in active use</div></div>
+          <div class="tot ${it.idle && it.idle > (it.minStock || 999) ? '' : 'warn'}"><div class="tot-lbl">Idle / Stock</div><div class="tot-val">${it.idle || 0}</div><div class="tot-sub">in stores · min ${it.minStock || '-'}</div></div>
           <div class="tot ${(it.repair || 0) > 0 ? 'warn' : ''}"><div class="tot-lbl">In repair</div><div class="tot-val">${it.repair || 0}</div><div class="tot-sub">${(it.repair || 0) > 0 ? 'awaiting service' : 'all healthy'}</div></div>`;
       }
       if (it.tracking === 'perishable') {
@@ -184,9 +184,9 @@
               <span class="doc-no">${it.code}</span>
               <span class="id-tracking-pill" data-t="${it.tracking}"><span class="dot"></span>${trackingLabel(it.tracking)}</span>
               <span class="id-meta">
-                <span>Last movement <strong>${it.lastMovement || '—'}</strong></span>
+                <span>Last movement <strong>${it.lastMovement || '-'}</strong></span>
                 <span class="dot-sep">·</span>
-                <span>${it.mfg || '—'}</span>
+                <span>${it.mfg || '-'}</span>
               </span>
             </div>
           </div>
@@ -242,7 +242,7 @@
     return `
       <div class="id-locate" onclick="window.__items.openLocate()" title="Locate within this item">
         ${ICONS.search}
-        <div class="id-locate-text">Locate within ${it.name.split('—')[0].trim()} — search by department, room, person, batch…</div>
+        <div class="id-locate-text">Locate within ${it.name.split(' - ')[0].trim()}. Search by department, room, person, batch…</div>
         <span class="id-locate-kbd">⌘K</span>
       </div>
 
@@ -382,7 +382,7 @@
     // top up to total qty with placeholders
     while (all.length < (it.totalQty || 0)) {
       const i = all.length + 1;
-      all.push({ tag: `${it.code.split('-').slice(-1)[0]}-${String(i).padStart(3, '0')}`, name: it.name.split('—')[0].trim(), status: 'idle', meta: 'Inventoried', location: 'Central Store · Main' });
+      all.push({ tag: `${it.code.split('-').slice(-1)[0]}-${String(i).padStart(3, '0')}`, name: it.name.split(' - ')[0].trim(), status: 'idle', meta: 'Inventoried', location: 'Central Store · Main' });
     }
 
     const rows = all.slice(0, 80).map(inst => `
@@ -441,16 +441,16 @@
               <div><div class="k">Category</div><div class="v">${it.category}</div></div>
               <div><div class="k">Tracking</div><div class="v">${trackingLabel(it.tracking)}</div></div>
               <div><div class="k">Unit</div><div class="v">${it.unit}</div></div>
-              <div><div class="k">Min stock</div><div class="v">${it.minStock || '—'}</div></div>
-              <div><div class="k">Manufacturer</div><div class="v">${it.mfg || '—'}</div></div>
-              <div><div class="k">Unit price</div><div class="v">${it.price || '—'}</div></div>
+              <div><div class="k">Min stock</div><div class="v">${it.minStock || '-'}</div></div>
+              <div><div class="k">Manufacturer</div><div class="v">${it.mfg || '-'}</div></div>
+              <div><div class="k">Unit price</div><div class="v">${it.price || '-'}</div></div>
             </div>
           </div>
         </div>
         <div class="card">
           <div class="card-head"><h3>Specifications</h3></div>
           <div class="card-pad">
-            <p style="margin:0 0 12px 0;font-size:13px;color:var(--ink-2);line-height:1.6">${it.description || '—'}</p>
+            <p style="margin:0 0 12px 0;font-size:13px;color:var(--ink-2);line-height:1.6">${it.description || '-'}</p>
             ${it.spec ? `<div style="font-size:12px;color:var(--muted);font-family:var(--font-mono);background:var(--surface);padding:10px 12px;border-radius:var(--radius);border:1px solid var(--hairline)">${it.spec}</div>` : ''}
           </div>
         </div>
@@ -538,7 +538,7 @@
         <div>
           <div class="eyebrow">Location · ${found.kind || ''}</div>
           <h2 class="sp-title">${found.name}</h2>
-          <div class="sp-sub">${found.code || ''} · ${found.qty} ${it.unit} of ${it.name.split('—')[0].trim()}</div>
+          <div class="sp-sub">${found.code || ''} · ${found.qty} ${it.unit} of ${it.name.split(' - ')[0].trim()}</div>
         </div>
         <button class="sp-close" onclick="window.__items.closePanel()" aria-label="Close">${ICONS.close}</button>
       </div>
@@ -629,7 +629,7 @@
       ${groups.instance.slice(0, 10).map(r => `
         <div class="lp-row">
           <div class="lp-icon">${ICONS.box}</div>
-          <div><div class="lp-name">${r.tag} — ${r.name}</div><div class="lp-path">${r.path}</div></div>
+          <div><div class="lp-name">${r.tag} - ${r.name}</div><div class="lp-path">${r.path}</div></div>
           <div class="lp-qty">${r.status}</div>
         </div>`).join('')}
     `);
@@ -655,7 +655,7 @@
     document.getElementById('locate-panel').innerHTML = `
       <div class="lp-search">
         ${ICONS.search}
-        <input id="locate-input" placeholder="Find a location, instance, person or batch within ${it.name.split('—')[0].trim()}…" value="${query}"/>
+        <input id="locate-input" placeholder="Find a location, instance, person or batch within ${it.name.split(' - ')[0].trim()}…" value="${query}"/>
         <span class="lp-foot kbd" style="border:1px solid var(--border)">esc</span>
       </div>
       <div class="lp-results">

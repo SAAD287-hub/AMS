@@ -187,7 +187,7 @@ export function CopilotSidePanel() {
   );
   // The text the user last sent. The composer keeps showing this text while
   // the agent runs (visual receipt that "I sent this"), and auto-clears it
-  // only when the run truly completes — and only if the user has NOT edited
+  // only when the run truly completes, and only if the user has NOT edited
   // the input in the meantime (we never want to clobber a new draft).
   const lastSubmittedTextRef = useRef<string | null>(null);
   const userEditedSinceSubmitRef = useRef(false);
@@ -215,7 +215,7 @@ export function CopilotSidePanel() {
     }
     if (next) {
       pendingSafetyTimerRef.current = setTimeout(() => {
-        // Timed out — assume the iframe missed sending a "done" event.
+        // Timed out, so assume the iframe missed sending a "done" event.
         // Unlock the composer so the user can keep working.
         loadingStartedRef.current = false;
         clearDetachedPending();
@@ -335,7 +335,7 @@ export function CopilotSidePanel() {
       }
       if (event.data?.type === "ASSISTANT_LOADING") {
         if (event.data.isLoading === true) {
-          // Ignore stragglers from a just-stopped run — they would re-lock the
+          // Ignore stragglers from a just-stopped run, since they would re-lock the
           // composer immediately after stop and trap the user.
           if (Date.now() < stopGuardUntilRef.current) return;
           loadingStartedRef.current = true;
@@ -345,7 +345,7 @@ export function CopilotSidePanel() {
         loadingStartedRef.current = false;
         setPendingWithSafety(false);
         // Run truly ended. Auto-clear the visual-receipt text the user sent
-        // — but only if they have not started typing a new draft. We use a
+        // but only if they have not started typing a new draft. We use a
         // ref because the message-handler closure captures stale state.
         if (
           lastSubmittedTextRef.current !== null &&
@@ -369,7 +369,7 @@ export function CopilotSidePanel() {
         // Do NOT write the just-sent text back into the composer here. The
         // detached input clears immediately on submit (same UX as the chat
         // panel composer), and the user may already be typing the next
-        // message — echoing the previous text would clobber their draft.
+        // message, and echoing the previous text would clobber their draft.
         setPendingWithSafety(true);
         return;
       }
@@ -404,7 +404,7 @@ export function CopilotSidePanel() {
       setPendingWithSafety(false);
       // Do NOT clear quickMessage here. This event fires on the FIRST
       // assistant token (mid-stream), and the user may already be typing
-      // the next message — clearing would wipe their draft. The input was
+      // the next message, and clearing would wipe their draft. The input was
       // already cleared at submit time.
       setUnreadCount((c) => (isOpen ? 0 : Math.min(99, c + 1)));
     };
@@ -576,7 +576,7 @@ export function CopilotSidePanel() {
     if (!restored || restoredPendingSentRef.current) return;
     restoredPendingSentRef.current = true;
     postQuickMessage(restored.text);
-    // The restored text stays visible in the composer as a receipt — it
+    // The restored text stays visible in the composer as a receipt, and it
     // will auto-clear when the resumed run completes, same as any other
     // submit, unless the user starts typing a new draft.
     lastSubmittedTextRef.current = restored.text;
@@ -602,7 +602,7 @@ export function CopilotSidePanel() {
 
       // Translate to English whenever the message contains Urdu/Arabic script
       // (U+0600..U+06FF). This works whether the text came from the mic, a
-      // paste, or a manual type — the agent always receives English.
+      // paste, or a manual type, so the agent always receives English.
       const hasUrdu = /[؀-ۿ]/.test(text);
       if (!hasUrdu) {
         sendText(text);
@@ -783,7 +783,7 @@ export function CopilotSidePanel() {
   // Defer → push to the queue. When state flips to idle the queue drains
   //   in arrival order so the user sees a coherent sequence, not a flood.
   // Drop → discard; the event is still visible in the notification feed
-  //   for the user to read normally — we just don't auto-pop a card.
+  //   for the user to read normally, we just don't auto-pop a card.
   //
   // The dispatcher itself owns NO state. We hold the rate-limit + per-entity
   // history in a ref so re-renders don't lose accumulated counts.
@@ -809,7 +809,7 @@ export function CopilotSidePanel() {
   }, []);
 
   // Compute the current proactive state from observable conditions. We don't
-  // store this as React state — the dispatcher reads it from a callback at
+  // store this as React state, since the dispatcher reads it from a callback at
   // event-handling time, so it's always fresh and never stale due to closure
   // capture.
   const computeProactiveState = useCallback((): CopilotProactiveState => {
@@ -867,7 +867,7 @@ export function CopilotSidePanel() {
     if (decision.action === "fire") {
       const sent = fireProactiveEvent(typed);
       if (!sent) {
-        // Iframe wasn't ready (race during mount) — defer so we don't lose it.
+        // Iframe wasn't ready (race during mount), so defer so we don't lose it.
         deferredProactiveQueueRef.current.push(typed);
       }
       return;
@@ -915,7 +915,7 @@ export function CopilotSidePanel() {
 
   // Listen for snooze commands from the iframe (the agent's proactive card
   // offers snooze buttons; clicking them postMessages back here). One thin
-  // protocol — keeps snooze state authoritative in the parent.
+  // protocol that keeps snooze state authoritative in the parent.
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== CHAT_ORIGIN) return;
@@ -988,7 +988,7 @@ export function CopilotSidePanel() {
     return () => window.removeEventListener("keydown", handle);
   }, [closeComposer, composerOpen]);
 
-  // NOTE: the detached composer is intentionally STICKY — it stays on screen
+  // NOTE: the detached composer is intentionally STICKY, and it stays on screen
   // until the user explicitly collapses it via the ChevronDown button (or
   // Esc, handled above). Clicking outside is no longer a dismiss path.
   //
@@ -1062,7 +1062,7 @@ export function CopilotSidePanel() {
           ? `${unreadCount} new repl${unreadCount === 1 ? "y" : "ies"}`
           : "Idle";
   // Conversational pill copy. Shorter than a status label, written so the
-  // line reads naturally end-to-end ("AMS Copilot is ready — Open"). Kept
+  // line reads naturally end-to-end ("AMS Copilot is ready, Open"). Kept
   // separate from launcherStatusLabel so the longer status word stays
   // available for the aria-label.
   const launcherMessage =
@@ -1196,7 +1196,7 @@ export function CopilotSidePanel() {
               if (lastSubmittedTextRef.current !== null) {
                 userEditedSinceSubmitRef.current = true;
               }
-              // User manually edited — no longer a pure voice draft, skip
+              // User manually edited, so no longer a pure voice draft, skip
               // auto-translation on submit.
               voiceInputRef.current = false;
               setQuickMessage(event.target.value);
@@ -1204,7 +1204,7 @@ export function CopilotSidePanel() {
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
-                // Only submit when not pending — but still let the user TYPE
+                // Only submit when not pending, but still let the user TYPE
                 // freely while a run is in flight so they can prepare the
                 // next message. The submit button itself flips to "Stop"
                 // while pending, and pressing Enter while pending is a no-op.
@@ -1272,7 +1272,7 @@ export function CopilotSidePanel() {
                 {quickMessagePending ? (
                   // Mirror the chat panel: spinning loader while a run is
                   // in flight so the user gets the same "working..." signal.
-                  // Click to cancel — same behaviour as the panel's Cancel.
+                  // Click to cancel, same behaviour as the panel's Cancel.
                   <LoaderCircle
                     size={12}
                     strokeWidth={2}

@@ -101,7 +101,7 @@ class LocationTagMetadataTests(TestCase):
                 Location(
                     name=f'Standalone Option Location {index:02d}',
                     code=f'STANDALONE-OPTION-{index:02d}',
-                    location_type=LocationType.OFFICE,
+                    location_type=LocationType.BUILDING,
                     parent_location=self.root,
                     is_standalone=True,
                 )

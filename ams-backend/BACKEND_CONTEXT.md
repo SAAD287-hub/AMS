@@ -1,4 +1,4 @@
-# AMS Backend — Agent Context
+# AMS Backend - Agent Context
 
 > Self-contained brief for any agent picking up work in this project. Read this first.
 
@@ -72,7 +72,7 @@ Multi-stage **inspection workflow**: DRAFT → STOCK_DETAILS → CENTRAL_REGISTE
 
 - **Two auth surfaces:**
   - **Djoser** owns user lifecycle endpoints (`/auth/users/...`, `/auth/users/me/`).
-  - **Custom cookie views** (`ams/auth_views.py` + `ams/cookie_auth.py`) own the session-like JWT flow: tokens issued as **httpOnly cookies** rather than bearer headers. This is the main web flow — don't refactor frontend calls toward `Authorization: Bearer ...`.
+  - **Custom cookie views** (`ams/auth_views.py` + `ams/cookie_auth.py`) own the session-like JWT flow: tokens issued as **httpOnly cookies** rather than bearer headers. This is the main web flow, so don't refactor frontend calls toward `Authorization: Bearer ...`.
 - `ams/capabilities_view.py` returns the user's allowed actions for the frontend to gate UI.
 - `ams/permissions_manifest.py` is the authoritative list of permission codenames the frontend RBAC layer consumes.
 - `user_management/permissions.py` + `inventory/permissions.py` enforce scoped queryset access (e.g., users only see their org's items). **Do not bypass `StrictDjangoModelPermissions` or the scoped queryset logic.**
@@ -84,7 +84,7 @@ Driven by `python-decouple` reading `.env`:
 
 - No application mode selector; configure `DEBUG` and `COOKIE_SECURE` explicitly.
 - `SECRET_KEY`, `ALLOWED_HOSTS`
-- `ENABLE_SILK` — adds the django-silk profiler at `/silk/`
+- `ENABLE_SILK` - adds the django-silk profiler at `/silk/`
 - PostgreSQL connection variables: `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`; see `.env.example` and `docs/deployment.md`.
 - CORS allow-list via `django-cors-headers`
 
@@ -104,11 +104,11 @@ Beyond Django/DRF/Djoser/SimpleJWT:
 ## Conventions and anti-patterns
 
 - **DRF serializers are the frontend contract.** Update them before assuming a new client field exists.
-- **Don't add bearer-header auth assumptions** — the web flow is httpOnly cookies.
+- **Don't add bearer-header auth assumptions**: the web flow is httpOnly cookies.
 - **Don't reintroduce DB seed/bootstrap scripts** without an explicit project decision (intentionally removed previously). Use `inventory/demo_population.py` / `tests_populate_demo_via_api.py` patterns instead.
 - **Tests are app-local `tests*.py`**, not a central `tests/` tree. Discover with Django's test runner, not pytest collection rules.
-- **Inventory has its own AGENTS.md** — read it before non-trivial inventory work. `user_management` has `PERMISSIONS_RULES.md`.
-- `ATOMIC_REQUESTS=True` is on — handle DB exceptions deliberately; don't swallow `IntegrityError` mid-request.
+- **Inventory has its own AGENTS.md**, read it before non-trivial inventory work. `user_management` has `PERMISSIONS_RULES.md`.
+- `ATOMIC_REQUESTS=True` is on, so handle DB exceptions deliberately; don't swallow `IntegrityError` mid-request.
 - Don't ignore env-driven behavior in `ams/settings.py` (auth, CORS, DB, silk) when refactoring those areas.
 
 ## Commands
@@ -127,7 +127,7 @@ python provision_production_roles.py # seed production RBAC groups
 
 ## Deploy
 
-Windows self-hosted via `.github/workflows/deploy.yml` — **NSSM + Waitress** on a Windows runner. Treat the workflow file as operationally important when touching anything that affects process startup, env loading, or static/media paths.
+Windows self-hosted via `.github/workflows/deploy.yml`: **NSSM + Waitress** on a Windows runner. Treat the workflow file as operationally important when touching anything that affects process startup, env loading, or static/media paths.
 
 ## Where to start, by task
 

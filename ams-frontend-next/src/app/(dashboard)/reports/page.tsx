@@ -585,7 +585,7 @@ function openReportPdfPrintView(report: ReportDefinition, view: ReportView) {
       <div class="sub">${htmlEscape(report.description)}</div>
     </div>
     <div class="meta">
-      <strong>NED Asset Management System</strong>
+      <strong>NEDUET AMS</strong>
       <span>${htmlEscape(printedAt)}</span>
       <span>${view.rows.length} rows</span>
     </div>

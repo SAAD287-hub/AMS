@@ -5,7 +5,7 @@ Run from the backend root with .env pointing at the restored PostgreSQL database
 
     venv\\Scripts\\python.exe scripts\\import_inspections.py
 
-The script is idempotent on contract_no — re-running skips inspections already created.
+The script is idempotent on contract_no, so re-running skips inspections already created.
 """
 import os
 import sys
@@ -36,7 +36,7 @@ from inventory.models.inspection_model import (
 
 
 # =============================================================================
-# REFERENCE DATA — users, locations
+# REFERENCE DATA - users, locations
 # =============================================================================
 chairman = User.objects.get(username="chairman.csit")
 it_csit = User.objects.get(username="it.csit")
@@ -51,7 +51,7 @@ print(f"Central store: {central_store.name} (id={central_store.id})")
 
 
 # =============================================================================
-# CATEGORIES — 3 parents + 7 subcategories
+# CATEGORIES - 3 parents + 7 subcategories
 # =============================================================================
 def get_or_create_parent(name, ctype, dep_rate=None):
     obj, created = Category.objects.get_or_create(
@@ -98,7 +98,7 @@ awards = get_or_create_sub("Awards & Display", fixed_parent, TrackingType.QUANTI
 
 
 # =============================================================================
-# ITEMS — 25 unique items
+# ITEMS - 25 unique items
 # =============================================================================
 def get_or_create_item(name, category, acct_unit="No.", specs=""):
     obj, created = Item.objects.get_or_create(
@@ -171,7 +171,7 @@ I = {
 
 
 # =============================================================================
-# STOCK REGISTERS — 3 at CSIT office, 2 at Central Store
+# STOCK REGISTERS - 3 at CSIT office, 2 at Central Store
 # =============================================================================
 def get_or_create_register(register_number, store, register_type):
     obj, created = StockRegister.objects.get_or_create(
@@ -193,7 +193,7 @@ central_main_dsr = get_or_create_register("Main DSR", central_store, "DSR")
 
 
 # =============================================================================
-# INSPECTIONS — 13 entries from inspection_data.md
+# INSPECTIONS - 13 entries from inspection_data.md
 # =============================================================================
 def D(s):
     """Parse dd-mm-yyyy or dd-mm-yy."""
@@ -207,7 +207,7 @@ def D(s):
 # Each entry: contract_no, contractor, indenter, indent_no, consignee, consignee_desig,
 # dates (deliv, insp, entry), dept_reg + page, central_reg + page, items
 INSPECTIONS = [
-    # 1 — Paper Ream June 2026
+    # 1 - Paper Ream June 2026
     {
         "contract_no": "CCS/2026/4/390",
         "contractor": "METRO Pakistan (Pvt) Ltd",
@@ -222,10 +222,10 @@ INSPECTIONS = [
         "dept_page": "424",
         "central_reg": central_main_csr,
         "central_page": "424",
-        "remarks": "Memo Ref CCS/2026/4/390 — Reimbursement of Paper Ream purchase, Rs. 5,496/-",
+        "remarks": "Memo Ref CCS/2026/4/390 - Reimbursement of Paper Ream purchase, Rs. 5,496/-",
         "items": [("paper_ream", 5, 5, 0, Decimal("1099.20"), None)],
     },
-    # 2 — LED Digital Clock Modules
+    # 2 - LED Digital Clock Modules
     {
         "contract_no": "CCS/2026/40062",
         "contractor": "ALPHA ENGINEERING",
@@ -240,7 +240,7 @@ INSPECTIONS = [
         "dept_page": "461",
         "central_reg": central_main_dsr,
         "central_page": "461",
-        "remarks": "Memo Ref CCS/2026/40062 — LED Digital Clock Modules, Rs. 99,120/-",
+        "remarks": "Memo Ref CCS/2026/40062 - LED Digital Clock Modules, Rs. 99,120/-",
         "items": [
             (
                 "led_clock_module",
@@ -252,7 +252,7 @@ INSPECTIONS = [
             )
         ],
     },
-    # 3 — Paper Ream May 2026
+    # 3 - Paper Ream May 2026
     {
         "contract_no": "CCS/2026/38147",
         "contractor": "METRO Pakistan (Pvt) Ltd",
@@ -267,10 +267,10 @@ INSPECTIONS = [
         "dept_page": "386",
         "central_reg": central_main_csr,
         "central_page": "386",
-        "remarks": "Memo Ref CCS/2026/38147 — Paper Ream from CSIT Sustainability, Rs. 5,396/-",
+        "remarks": "Memo Ref CCS/2026/38147 - Paper Ream from CSIT Sustainability, Rs. 5,396/-",
         "items": [("paper_ream", 5, 5, 0, Decimal("1079.20"), None)],
     },
-    # 4 — NVIDIA RTX 5060 Ti
+    # 4 - NVIDIA RTX 5060 Ti
     {
         "contract_no": "CCS/2026/33322",
         "contractor": "IAFE Solutions",
@@ -289,7 +289,7 @@ INSPECTIONS = [
         "dept_page": "825",
         "central_reg": central_main_dsr,
         "central_page": "825",
-        "remarks": "Memo Ref CCS/2026/33322 — SRSP HEC Project #426 (Real Time Post-Flood Diseases Detection)",
+        "remarks": "Memo Ref CCS/2026/33322 - SRSP HEC Project #426 (Real Time Post-Flood Diseases Detection)",
         "items": [
             (
                 "nvidia_rtx",
@@ -301,7 +301,7 @@ INSPECTIONS = [
             )
         ],
     },
-    # 5 — Continental Traders multi-item (SRSP #426)
+    # 5 - Continental Traders multi-item (SRSP #426)
     {
         "contract_no": "SRSP-426/CT-2026-04-A",
         "contractor": "Continental Traders",
@@ -316,7 +316,7 @@ INSPECTIONS = [
         "dept_page": "169,270,278,229,300,130,168,115",
         "central_reg": central_main_csr,
         "central_page": "169,270,278,229,300,130,168,115",
-        "remarks": "SRSP HEC Project #426 — sensors, cables, peripherals",
+        "remarks": "SRSP HEC Project #426 - sensors, cables, peripherals",
         "items": [
             ("max30102", 3, 3, 0, Decimal("0.00"), {"cap": Decimal("0.00"), "cap_date": D("27-04-2026")}),
             ("max30205", 3, 3, 0, Decimal("0.00"), {"cap": Decimal("0.00"), "cap_date": D("27-04-2026")}),
@@ -329,7 +329,7 @@ INSPECTIONS = [
             ("wifi_dongle", 1, 1, 0, Decimal("0.00"), {"cap": Decimal("0.00"), "cap_date": D("27-04-2026")}),
         ],
     },
-    # 6 — IAFE LED Monitor
+    # 6 - IAFE LED Monitor
     {
         "contract_no": "SRSP-426/IAFE-LED-2026",
         "contractor": "IAFE Solutions",
@@ -344,7 +344,7 @@ INSPECTIONS = [
         "dept_page": "307",
         "central_reg": central_main_dsr,
         "central_page": "307",
-        "remarks": "SRSP HEC Project #426 — LED HP Monitor 22 inch",
+        "remarks": "SRSP HEC Project #426 - LED HP Monitor 22 inch",
         "items": [
             (
                 "led_monitor",
@@ -356,7 +356,7 @@ INSPECTIONS = [
             )
         ],
     },
-    # 7 — RODE Wireless Mic
+    # 7 - RODE Wireless Mic
     {
         "contract_no": "CCS-ALPHA-MIC-2026",
         "contractor": "ALPHA ENGINEERING",
@@ -383,7 +383,7 @@ INSPECTIONS = [
             )
         ],
     },
-    # 8 — Stationery bundle
+    # 8 - Stationery bundle
     {
         "contract_no": "CCS-ALPHA-STAT-2026",
         "contractor": "ALPHA ENGINEERING",
@@ -398,7 +398,7 @@ INSPECTIONS = [
         "dept_page": "422,284,51,265,388",
         "central_reg": central_main_csr,
         "central_page": "422,284,51,265,388",
-        "remarks": "Stationery bundle — markers, ink, dusters, box files, paper",
+        "remarks": "Stationery bundle - markers, ink, dusters, box files, paper",
         "items": [
             ("board_marker", 120, 120, 0, Decimal("0.00"), None),
             ("marker_ink", 8, 8, 0, Decimal("0.00"), None),
@@ -407,7 +407,7 @@ INSPECTIONS = [
             ("paper_ream", 5, 5, 0, Decimal("0.00"), None),
         ],
     },
-    # 9 — Plumbing fixtures
+    # 9 - Plumbing fixtures
     {
         "contract_no": "CCS-ALPHA-PLUMB-2025",
         "contractor": "ALPHA ENGINEERING",
@@ -442,7 +442,7 @@ INSPECTIONS = [
             ),
         ],
     },
-    # 10 — Jetson Nano (Main DSR)
+    # 10 - Jetson Nano (Main DSR)
     {
         "contract_no": "SRSP-426/JETSON-2026",
         "contractor": "Continental Traders",
@@ -457,7 +457,7 @@ INSPECTIONS = [
         "dept_page": "279",
         "central_reg": central_main_dsr,
         "central_page": "364/65",
-        "remarks": "SRSP HEC Project #426 — Jetson Nano Developer Kit",
+        "remarks": "SRSP HEC Project #426 - Jetson Nano Developer Kit",
         "items": [
             (
                 "jetson_nano",
@@ -469,7 +469,7 @@ INSPECTIONS = [
             )
         ],
     },
-    # 11 — UPS (PAD DSR, Huma Tabassum PhD project)
+    # 11 - UPS (PAD DSR, Huma Tabassum PhD project)
     {
         "contract_no": "PHD-FBPLA/UPS-2024",
         "contractor": "Continental Traders",
@@ -484,7 +484,7 @@ INSPECTIONS = [
         "dept_page": "21",
         "central_reg": central_main_dsr,
         "central_page": "42/17",
-        "remarks": "PhD Research Project — Formulating Feedback-based Perspective Learning Analytics Model",
+        "remarks": "PhD Research Project - Formulating Feedback-based Perspective Learning Analytics Model",
         "items": [
             (
                 "ups",
@@ -496,7 +496,7 @@ INSPECTIONS = [
             )
         ],
     },
-    # 12 — Shields & Trophies
+    # 12 - Shields & Trophies
     {
         "contract_no": "CCS-ALPHA-AWARDS-2025",
         "contractor": "Alpha Engineering",
@@ -531,7 +531,7 @@ INSPECTIONS = [
             ),
         ],
     },
-    # 13 — Printing supplies Metro
+    # 13 - Printing supplies Metro
     {
         "contract_no": "CCS-PRINT-METRO-2024",
         "contractor": "Metro Pakistan (Pvt) Ltd",
@@ -546,7 +546,7 @@ INSPECTIONS = [
         "dept_page": "385",
         "central_reg": central_main_dsr,
         "central_page": "42/24",
-        "remarks": "Printing Expenses — Paper A4 + PPC Toner",
+        "remarks": "Printing Expenses - Paper A4 + PPC Toner",
         "items": [
             ("paper_ream", 5, 5, 0, Decimal("0.00"), None),
             ("ppc_toner", 1, 1, 0, Decimal("0.00"), None),
@@ -627,7 +627,7 @@ for spec in INSPECTIONS:
         ic.central_store_filled_at = timezone.now()
         ic.save()
 
-        # Final transition — fires auto_generate_stock_from_inspection signal
+        # Final transition, fires auto_generate_stock_from_inspection signal
         ic.stage = InspectionStage.COMPLETED
         ic.status = "COMPLETED"
         ic.finance_reviewed_by = finance

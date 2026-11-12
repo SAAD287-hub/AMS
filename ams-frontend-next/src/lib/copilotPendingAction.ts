@@ -25,7 +25,7 @@ export function queuePendingOpen(formId: string): void {
       JSON.stringify({ formId, ts: Date.now() } satisfies PendingOpen),
     );
   } catch {
-    /* quota / private mode — ignore */
+    /* quota / private mode, ignore */
   }
 }
 
@@ -58,7 +58,7 @@ export function consumePendingOpen(expectedFormId: string): boolean {
   }
 }
 
-/** Same-page case — emit a window event the page can listen to. */
+/** Same-page case: emit a window event the page can listen to. */
 export const SAME_PAGE_OPEN_EVENT = "ams-copilot-open-form";
 
 export function dispatchSamePageOpen(formId: string): void {

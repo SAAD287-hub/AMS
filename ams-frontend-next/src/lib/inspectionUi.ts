@@ -800,7 +800,7 @@ export function relTime(iso: string) {
 }
 
 export function formatInspectionDate(value: string | null | undefined) {
-  if (!value) return "—";
+  if (!value) return "-";
   return new Date(value).toLocaleDateString("en-GB", {
     day: "2-digit",
     month: "short",
@@ -809,7 +809,7 @@ export function formatInspectionDate(value: string | null | undefined) {
 }
 
 export function formatInspectionDateShort(value: string | null | undefined) {
-  if (!value) return "—";
+  if (!value) return "-";
   return new Date(value).toLocaleDateString("en-GB", {
     day: "2-digit",
     month: "short",

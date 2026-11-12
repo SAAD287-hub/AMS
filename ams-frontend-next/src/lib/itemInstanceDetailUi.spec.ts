@@ -14,7 +14,7 @@ describe("item instance detail UI helpers", () => {
       instanceId: 7,
       position: 3,
       total: 3,
-    })).toBe("Laptops Auto — SN-001");
+    })).toBe("Laptops Auto - SN-001");
   });
 
   it("falls back to the unit position when the serial number is missing", () => {
@@ -24,7 +24,7 @@ describe("item instance detail UI helpers", () => {
       instanceId: 7,
       position: 3,
       total: 3,
-    })).toBe("Laptops Auto — unit #3 of 3");
+    })).toBe("Laptops Auto - unit #3 of 3");
   });
 
   it("falls back to the instance id when no serial or sequence is available", () => {
@@ -32,7 +32,7 @@ describe("item instance detail UI helpers", () => {
       itemName: "Laptops Auto",
       serialNumber: "",
       instanceId: 7,
-    })).toBe("Laptops Auto — instance #7");
+    })).toBe("Laptops Auto - instance #7");
   });
 
   it("uses the best available identifier for chips and labels", () => {

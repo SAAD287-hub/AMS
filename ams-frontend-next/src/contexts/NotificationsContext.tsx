@@ -67,7 +67,7 @@ export interface NotificationFeedItem {
   /**
    * Optional structured pointer the suggested intent should act on
    * (form id, record id, module, or route). Backend may put this here as a
-   * first-class field OR keep it inside `metadata` during transition — the
+   * first-class field OR keep it inside `metadata` during transition, so the
    * parser checks both locations.
    */
   intent_target?: {
@@ -181,7 +181,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   // Monotonic generation counter for summary writes. Each fetch captures the
   // generation in flight; only the write whose generation === current can
   // commit. Prevents races between refreshSummary (interval) and
-  // loadPanelData (panel open) — the older response cannot clobber the
+  // loadPanelData (panel open), so the older response cannot clobber the
   // fresher one even when they finish out of order.
   const summaryGenerationRef = useRef(0);
 
@@ -193,7 +193,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
 
   // Last feed event id we know about. Sent as ?since=<id> so the backend can
   // return only newer items if it supports incremental fetch. If the backend
-  // ignores the parameter the call still returns the full list — safe either
+  // ignores the parameter the call still returns the full list, which is safe either
   // way. The frontend de-dups on item.id when merging.
   const lastSeenEventIdRef = useRef<number | null>(null);
 
@@ -350,7 +350,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     // Cross-tab broadcast: only same-origin tabs, channel scoped per user so
     // logout/login swaps the channel and old data cannot cross. Reads must
-    // be defensive — a malformed payload (e.g., from a future schema)
+    // be defensive, since a malformed payload (e.g., from a future schema)
     // should never throw and crash the listener.
     const channel = typeof BroadcastChannel !== "undefined"
       ? new BroadcastChannel(broadcastChannelName)
@@ -497,7 +497,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     } catch {
       setFeed(previousFeed);
       setSummary(previousSummary);
-      // Rolled back locally — also let siblings know so they re-sync.
+      // Rolled back locally, so also let siblings know so they re-sync.
       await loadPanelData();
       await refreshSummary();
     }

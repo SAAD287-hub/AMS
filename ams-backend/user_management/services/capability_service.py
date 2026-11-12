@@ -85,7 +85,7 @@ def apply_module_selections(
     """Set the group's permissions to exactly what the selections resolve to.
 
     Implied permissions are then added by the m2m_changed signal, so the final
-    row count on the group may be larger than len(codenames) — that is expected.
+    row count on the group may be larger than len(codenames), which is expected.
     """
     codenames = resolve_selections_to_codenames(selections, inspection_stages)
     perms = codenames_to_permissions(codenames)

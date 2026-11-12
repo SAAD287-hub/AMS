@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { Topbar } from "@/components/Topbar";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/contexts/AuthContext";
 import { useCapabilities, type CapabilityLevel } from "@/contexts/CapabilitiesContext";
 import { useNotifications } from "@/contexts/NotificationsContext";
 import { apiFetch, type Page } from "@/lib/api";
@@ -260,19 +261,38 @@ function capabilityTone(level: CapabilityLevel | null | undefined) {
 function DonutChart({ available, allocated, transit, lowStock }: { available: number; allocated: number; transit: number; lowStock: number }) {
   const total = Math.max(available + allocated + transit + lowStock, 1);
   const segments = [
-    { value: available, color: "var(--ink-2)", label: "Available" },
-    { value: allocated, color: "color-mix(in oklch, var(--ink) 52%, white)", label: "Allocated" },
-    { value: transit, color: "var(--muted)", label: "In transit" },
-    { value: lowStock, color: "color-mix(in oklch, var(--danger) 72%, var(--ink))", label: "Low stock" },
+    { value: available, startColor: "#10b981", endColor: "#059669", label: "Available", gid: "donut-gradient-available" },
+    { value: allocated, startColor: "#8b5cf6", endColor: "#7c3aed", label: "Allocated", gid: "donut-gradient-allocated" },
+    { value: transit, startColor: "#f59e0b", endColor: "#d97706", label: "In transit", gid: "donut-gradient-transit" },
+    { value: lowStock, startColor: "#f43f5e", endColor: "#e11d48", label: "Low stock", gid: "donut-gradient-low" },
   ];
   let offset = 25;
 
   return (
     <div className={styles.donutWrap}>
       <svg viewBox="0 0 44 44" className={styles.donut} role="img" aria-label="Stock status donut chart">
-        <circle cx="22" cy="22" r="15.915" fill="transparent" stroke="var(--surface-2)" strokeWidth="5" />
+        <defs>
+          {segments.map(s => (
+            <linearGradient key={s.gid} id={s.gid} x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor={s.startColor} />
+              <stop offset="100%" stopColor={s.endColor} />
+            </linearGradient>
+          ))}
+          <filter id="donut-shadow" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur in="SourceAlpha" stdDeviation="0.5" />
+            <feOffset dx="0" dy="0.3" result="offsetblur" />
+            <feComponentTransfer><feFuncA type="linear" slope="0.3" /></feComponentTransfer>
+            <feMerge><feMergeNode /><feMergeNode in="SourceGraphic" /></feMerge>
+          </filter>
+        </defs>
+        <circle cx="22" cy="22" r="15.915" fill="transparent" stroke="var(--surface-2)" strokeWidth="4.2" />
         {segments.map(segment => {
           const dash = (segment.value / total) * 100;
+          if (segment.value <= 0 || dash <= 0.5) {
+            // Skip tiny/zero segments to avoid stray round-cap dots.
+            offset -= dash;
+            return null;
+          }
           const circle = (
             <circle
               key={segment.label}
@@ -280,10 +300,12 @@ function DonutChart({ available, allocated, transit, lowStock }: { available: nu
               cy="22"
               r="15.915"
               fill="transparent"
-              stroke={segment.color}
-              strokeWidth="5"
+              stroke={`url(#${segment.gid})`}
+              strokeWidth="4.2"
+              strokeLinecap="butt"
               strokeDasharray={`${dash} ${100 - dash}`}
               strokeDashoffset={offset}
+              filter="url(#donut-shadow)"
             />
           );
           offset -= dash;
@@ -292,7 +314,7 @@ function DonutChart({ available, allocated, transit, lowStock }: { available: nu
       </svg>
       <div className={styles.donutCenter}>
         <strong>{fmtNumber(total)}</strong>
-        <span>Total</span>
+        <span>Total units</span>
       </div>
     </div>
   );
@@ -310,15 +332,16 @@ function ActivityChart({ rows }: { rows: ActivityMonth[] }) {
       </div>
       {rows.map(row => {
         const total = row.stock + row.inspections + row.maintenance + row.notifications;
-        const height = Math.max(38, Math.round((total / max) * 150));
+        const height = Math.max(44, Math.round((total / max) * 170));
+        const tooltip = `${row.month} - Stock: ${row.stock}, Inspections: ${row.inspections}, Maintenance: ${row.maintenance}, Notifications: ${row.notifications}`;
         return (
-          <div key={row.month} className={styles.healthColumn}>
+          <div key={row.month} className={styles.healthColumn} title={tooltip}>
             <div className={styles.healthTotal}>{fmtNumber(total)}</div>
             <div className={styles.healthStack} style={{ height }}>
-              <span className={styles.healthUnknown} style={{ flexGrow: row.notifications }} />
-              <span className={styles.healthCritical} style={{ flexGrow: row.maintenance }} />
-              <span className={styles.healthFair} style={{ flexGrow: row.inspections }} />
-              <span className={styles.healthGood} style={{ flexGrow: row.stock }} />
+              {row.notifications > 0 ? <span className={styles.healthUnknown} style={{ flexGrow: row.notifications }} /> : null}
+              {row.maintenance > 0 ? <span className={styles.healthCritical} style={{ flexGrow: row.maintenance }} /> : null}
+              {row.inspections > 0 ? <span className={styles.healthFair} style={{ flexGrow: row.inspections }} /> : null}
+              {row.stock > 0 ? <span className={styles.healthGood} style={{ flexGrow: row.stock }} /> : null}
             </div>
             <div className={styles.healthMonth}>{row.month}</div>
           </div>
@@ -332,23 +355,45 @@ function MetricCardView({ metric }: { metric: MetricCard }) {
   const Icon = metric.icon;
 
   return (
-    <section className={`${styles.metricCard} ${styles[`tone_${metric.tone}`]}`}>
-      <div className={styles.metricIcon}>
-        <Icon aria-hidden />
+    <section className={`${styles.metricCard} ${styles[`tone_${metric.tone}`]}`} data-tone={metric.tone}>
+      <div className={styles.metricTopRow}>
+        <div className={styles.metricIcon}>
+          <Icon aria-hidden />
+        </div>
+        <span className={styles.scopeChip}>{metric.scope}</span>
       </div>
       <div className={styles.metricBody}>
         <div className={styles.metricLabel}>{metric.label}</div>
         <div className={styles.metricValue}>{metric.value}</div>
-        {metric.trend ? <div className={styles.metricMeta}><span className={styles.metricTrend}>{metric.trend}</span></div> : null}
+        {metric.trend ? (
+          <div className={styles.metricMeta}>
+            <span className={styles.metricTrend}>
+              <span className={styles.metricTrendDot} aria-hidden="true" />
+              {metric.trend}
+            </span>
+          </div>
+        ) : null}
       </div>
-      <span className={styles.scopeChip}>{metric.scope}</span>
     </section>
   );
 }
 
+function getTimeGreeting(): string {
+  const h = new Date().getHours();
+  if (h < 12) return "Good morning";
+  if (h < 17) return "Good afternoon";
+  return "Good evening";
+}
+
 export default function DashboardPage() {
+  const { user } = useAuth();
   const { modules, can, isSuperuser, isLoading: capabilitiesLoading } = useCapabilities();
   const { summary, alerts, feed, isSummaryLoading, refreshSummary } = useNotifications();
+  const [now, setNow] = useState<Date>(() => new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(t);
+  }, []);
   const [data, setData] = useState<DashboardData>(EMPTY_DATA);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -620,27 +665,41 @@ export default function DashboardPage() {
     <div>
       <Topbar breadcrumb={["Overview", "Dashboard"]} />
       <main className="page">
-        <div className="page-head">
-          <div className="page-title-group">
-            <h1 className="display">Dashboard</h1>
+        <section className={styles.hero}>
+          <div className={styles.heroBg} aria-hidden="true">
+            <span className={styles.heroBlob1} />
+            <span className={styles.heroBlob2} />
+            <span className={styles.heroGrid} />
           </div>
-          <div className="page-head-actions">
-            <span className={styles.scopeStatus}>
-              <ShieldCheck aria-hidden />
-              {scopeLabel}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                void refreshSummary();
-              }}
-            >
-              <RefreshCw aria-hidden />
-              Refresh
-            </Button>
+          <div className={styles.heroContent}>
+            <div className={styles.heroLeft}>
+              <div className={styles.heroEyebrow}>
+                {now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+                <span className={styles.heroDot} aria-hidden="true">·</span>
+                {now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+              </div>
+              <h1 className={styles.heroTitle}>
+                {getTimeGreeting()},
+                <span className={styles.heroName}> {user?.first_name || user?.username || "Admin"}</span>
+              </h1>
+              <p className={styles.heroSub}>Here is a quick overview of the inventory, operations and alerts you own.</p>
+            </div>
+            <div className={styles.heroRight}>
+              <span className={styles.heroScope}>
+                <ShieldCheck aria-hidden />
+                {scopeLabel}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { void refreshSummary(); }}
+              >
+                <RefreshCw aria-hidden />
+                Refresh
+              </Button>
+            </div>
           </div>
-        </div>
+        </section>
 
         <div className={styles.dashboardStack} aria-busy={isBusy}>
           <section className={styles.metricGrid} aria-label="Dashboard summary">

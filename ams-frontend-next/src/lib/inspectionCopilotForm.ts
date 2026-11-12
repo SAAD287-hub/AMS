@@ -600,7 +600,7 @@ export function buildInspectionItemArrayCopilotFields({
 //
 // IMPORTANT: this resolver is ONLY wired through useCopilotForm({ searchOptions })
 // on the inspection central register surface. Human-facing dropdowns do NOT
-// route through here — they keep using the standard ItemViewSet list endpoint
+// route through here, since they keep using the standard ItemViewSet list endpoint
 // with ?search=…  No filter/UX behaviour changes for users.
 //
 // If the backend reports `enabled: false` (feature flag off, or DB is SQLite,
@@ -659,7 +659,7 @@ function pickInspectionRowContext(
     nested = itemsArray[rowIndex] as Record<string, unknown>;
   }
 
-  const merged = { ...nested, ...dotted }; // dotted overrides — it's the agent's planned patch
+  const merged = { ...nested, ...dotted }; // dotted overrides, because it's the agent's planned patch
   const result: Record<string, string> = {};
   for (const key of [
     "item_name",
@@ -706,7 +706,7 @@ export async function searchCentralRegisterItemOptions(
   const rowContext = pickInspectionRowContext(currentValues, rowIndex);
 
   // If the row carries no signal at all, the hybrid search would have nothing
-  // useful to embed — fall back to the in-memory matcher (which can still
+  // useful to embed, so fall back to the in-memory matcher (which can still
   // resolve a literal name/code typed by the user).
   if (!rowContext.item_name && !rowContext.item_description && !rowContext.item_code && !query.trim()) {
     return searchCopilotFormOptions(args);

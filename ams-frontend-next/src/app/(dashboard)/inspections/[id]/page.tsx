@@ -208,7 +208,7 @@ function KeyValue({ label, value, sub }: { label: string; value: React.ReactNode
   return (
     <div className="detail-kv">
       <div className="detail-kv-label">{label}</div>
-      <div className="detail-kv-value">{value || "—"}</div>
+      <div className="detail-kv-value">{value || "-"}</div>
       {sub ? <div className="detail-kv-sub">{sub}</div> : null}
     </div>
   );
@@ -533,7 +533,7 @@ function ActiveStageCard({
         <footer className="detail-card-foot">
           <div className="stage-action-foot">
             <div className="stage-action-foot-meta">
-              Save progress keeps the current stage open. Return asks for a revision reason and sends the certificate back one workflow step without clearing the recorded stage data — save current edits first if you need to keep them.
+              Save progress keeps the current stage open. Return asks for a revision reason and sends the certificate back one workflow step without clearing the recorded stage data. Save current edits first if you need to keep them.
             </div>
             <div className="stage-action-foot-actions">
               {canReturn && returnLabel ? (
@@ -962,7 +962,7 @@ export default function InspectionDetailPage() {
   // agent can resolve "core i5" → catalog item id, etc., without firing SQL.
   useCopilotReadable({
     description:
-      "Inspection detail dropdown catalogs (loaded for the current stage). Use 'items' to resolve inspection row 'item' foreign-key IDs by matching item_description/item_name AND item description/specifications against catalog name/code/description/specifications — similar names can be different products, so compare descriptions and specifications before deciding two items differ; use 'stock_registers' for stock_register/central_register IDs; use 'asset_classes' for finance-review depreciation_asset_class IDs. When filling stage-2/stage-3 item rows, ALWAYS set the row's 'item' field to the catalog id from items[].id, do NOT leave it null when a name+description match exists. Never silently create a new item when a catalog match exists; if no genuine match exists, ask the user before opening item_create. The items array is empty when the current stage does not need it.",
+      "Inspection detail dropdown catalogs (loaded for the current stage). Use 'items' to resolve inspection row 'item' foreign-key IDs by matching item_description/item_name AND item description/specifications against catalog name/code/description/specifications; similar names can be different products, so compare descriptions and specifications before deciding two items differ; use 'stock_registers' for stock_register/central_register IDs; use 'asset_classes' for finance-review depreciation_asset_class IDs. When filling stage-2/stage-3 item rows, ALWAYS set the row's 'item' field to the catalog id from items[].id, do NOT leave it null when a name+description match exists. Never silently create a new item when a catalog match exists; if no genuine match exists, ask the user before opening item_create. The items array is empty when the current stage does not need it.",
     value: {
       route: `/inspections/${params.id}`,
       stage: editableInspection?.stage ?? null,
@@ -1453,7 +1453,7 @@ export default function InspectionDetailPage() {
                 ) : null}
                 {canDelete ? (
                   <Button type="button" variant="outline" size="sm" className="btn-danger-ghost" onClick={handleDelete} disabled={busyAction !== null}>
-                    <InspectionIcon d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0l1 12h6l1-12" size={14} />
+                    <InspectionIcon d="M3 6h18 M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6 M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2 M10 11v6 M14 11v6" size={14} />
                     Delete draft
                   </Button>
                 ) : null}

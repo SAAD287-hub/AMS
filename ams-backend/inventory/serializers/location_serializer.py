@@ -75,6 +75,21 @@ class LocationSerializer(serializers.ModelSerializer):
         if attrs.get('location_type') == LocationType.STORE and 'is_store' not in attrs:
             attrs['is_store'] = True
 
+        main_store_name = (attrs.get('main_store_name') or '').strip()
+        if main_store_name:
+            location_name = (attrs.get('name') or getattr(self.instance, 'name', '') or '').strip()
+            if location_name and main_store_name.casefold() == location_name.casefold():
+                raise serializers.ValidationError({
+                    'main_store_name': "Main store name must be different from the location name."
+                })
+            existing_qs = Location.objects.filter(name__iexact=main_store_name)
+            if self.instance:
+                existing_qs = existing_qs.exclude(pk=self.instance.pk)
+            if existing_qs.exists():
+                raise serializers.ValidationError({
+                    'main_store_name': "A location with this name already exists."
+                })
+
         candidate = self.instance or Location()
         for field, value in attrs.items():
             if field == 'tags':

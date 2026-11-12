@@ -1,4 +1,4 @@
-/* Item Distribution — dedicated page view
+/* Item Distribution -dedicated page view
    Premium AMS pattern: hero stats + hierarchical expandable table. */
 
 .page {
@@ -86,7 +86,7 @@
   font-size: 12.5px;
 }
 
-/* ---------- Stat strip — tighter than the default notif-stat ---------- */
+/* ---------- Stat strip -tighter than the default notif-stat ---------- */
 .statStrip :global(.notif-stat) {
   padding: 14px 16px;
   gap: 10px;
@@ -108,27 +108,27 @@
 }
 
 .statStrip :global(.notif-stat[data-accent="slate"] .notif-stat-icon) {
-  background: color-mix(in oklch, var(--ink-2) 7%, white);
-  color: color-mix(in oklch, var(--ink-2) 78%, var(--ink));
-  border-color: color-mix(in oklch, var(--ink-2) 18%, transparent);
+  background: color-mix(in oklch, var(--primary) 12%, var(--card));
+  color: color-mix(in oklch, var(--primary) 78%, var(--ink));
+  border-color: color-mix(in oklch, var(--primary) 28%, transparent);
 }
 
 .statStrip :global(.notif-stat[data-accent="primary"] .notif-stat-icon) {
-  background: color-mix(in oklch, var(--primary) 9%, white);
-  color: color-mix(in oklch, var(--primary) 78%, var(--ink));
-  border-color: color-mix(in oklch, var(--primary) 24%, transparent);
+  background: color-mix(in oklch, var(--primary) 14%, var(--card));
+  color: color-mix(in oklch, var(--primary) 82%, var(--ink));
+  border-color: color-mix(in oklch, var(--primary) 32%, transparent);
 }
 
 .statStrip :global(.notif-stat[data-accent="success"] .notif-stat-icon) {
-  background: color-mix(in oklch, var(--success) 11%, white);
-  color: color-mix(in oklch, var(--success) 70%, var(--ink));
-  border-color: color-mix(in oklch, var(--success) 24%, transparent);
+  background: color-mix(in oklch, var(--success) 14%, var(--card));
+  color: color-mix(in oklch, var(--success) 82%, var(--ink));
+  border-color: color-mix(in oklch, var(--success) 32%, transparent);
 }
 
 .statStrip :global(.notif-stat[data-accent="warn"] .notif-stat-icon) {
-  background: color-mix(in oklch, var(--warn) 12%, white);
-  color: color-mix(in oklch, var(--warn) 70%, var(--ink));
-  border-color: color-mix(in oklch, var(--warn) 26%, transparent);
+  background: color-mix(in oklch, var(--warn) 14%, var(--card));
+  color: color-mix(in oklch, var(--warn) 82%, var(--ink));
+  border-color: color-mix(in oklch, var(--warn) 32%, transparent);
 }
 
 .statUnit {
@@ -174,7 +174,7 @@
   line-height: 1.45;
 }
 
-/* Segmented filter rail — quiet, matches our drawer pills */
+/* Segmented filter rail -quiet, matches our drawer pills */
 .tableTools {
   display: inline-flex;
   align-items: center;

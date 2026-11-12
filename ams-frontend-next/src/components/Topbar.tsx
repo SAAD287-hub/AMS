@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { BellIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth, type AuthUser } from "@/contexts/AuthContext";
@@ -712,6 +713,8 @@ export function Topbar({ breadcrumb }: TopbarProps) {
           </div>
 
           <div className="tb-divider" />
+
+          <ThemeToggle />
 
           <div className="tb-notify" ref={panelRef}>
             <Button

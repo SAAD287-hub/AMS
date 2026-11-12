@@ -22,7 +22,7 @@ type NavGroup = {
   items: NavItem[];
 };
 
-const IMPLEMENTED_ROUTES = new Set(["/dashboard", "/users", "/employees", "/roles", "/locations", "/categories", "/items", "/stock-entries", "/stock-registers", "/reports", "/inspections", "/maintenance", "/depreciation"]);
+const IMPLEMENTED_ROUTES = new Set(["/dashboard", "/users", "/employees", "/roles", "/locations", "/categories", "/items", "/vendors", "/stores", "/stock-entries", "/stock-registers", "/digital-registers", "/reports", "/inspections", "/maintenance", "/depreciation"]);
 
 const NavIcon = ({ d, size = 18 }: { d: React.ReactNode | string; size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }} aria-hidden="true" focusable="false">
@@ -57,6 +57,8 @@ const NAV_ITEMS: NavGroup[] = [
       { key: "locations", label: "Locations", href: "/locations", module: "locations", icon: <><path d="M12 21s-7-6.5-7-12a7 7 0 1114 0c0 5.5-7 12-7 12z"/><circle cx="12" cy="9" r="2.5"/></> },
       { key: "categories", label: "Categories", href: "/categories", module: "categories", icon: <><path d="M20.5 13.5l-7 7a1.5 1.5 0 01-2.12 0L3 12.12V3h9.12l8.38 8.38a1.5 1.5 0 010 2.12z"/><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor"/></> },
       { key: "items", label: "Items", href: "/items", module: "items", icon: <><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><path d="M3.3 7L12 12l8.7-5M12 22V12"/></> },
+      { key: "vendors", label: "Vendors", href: "/vendors", module: "items", icon: <><path d="M3 9l1-6h16l1 6"/><path d="M4 9v11a1 1 0 001 1h14a1 1 0 001-1V9"/><path d="M9 21v-6h6v6"/></> },
+      { key: "stores", label: "Stores", href: "/stores", module: "items", icon: <><path d="M4 7h16l-1 4a2 2 0 01-2 2H7a2 2 0 01-2-2L4 7z"/><path d="M4 7V5a1 1 0 011-1h14a1 1 0 011 1v2"/><path d="M6 13v7a1 1 0 001 1h10a1 1 0 001-1v-7"/><path d="M10 21v-5h4v5"/></> },
     ],
   },
   {
@@ -66,6 +68,7 @@ const NAV_ITEMS: NavGroup[] = [
       { key: "inspections", label: "Inspections", href: "/inspections", module: "inspections", icon: <><path d="M9 11l3 3 7-7"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></> },
       { key: "maintenance", label: "Maintenance", href: "/maintenance", module: "maintenance", icon: <><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.1-3.1a5 5 0 01-6.6 6.6l-6 6a2.1 2.1 0 01-3-3l6-6a5 5 0 016.6-6.6z"/><path d="M4 20l4-4"/></> },
       { key: "stock-registers", label: "Stock Registers", href: "/stock-registers", module: "stock-registers", icon: <><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></> },
+      { key: "digital-registers", label: "Digital Registers", href: "/digital-registers", module: "stock-registers", icon: <><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 4v16M4 8h4M4 12h4M4 16h4"/></> },
       { key: "reports", label: "Reports", href: "/reports", module: "reports", icon: <><path d="M4 19h16"/><path d="M7 16V9M12 16V5M17 16v-4"/><path d="M5 5h14"/></> },
       { key: "depreciation", label: "Depreciation", href: "/depreciation", module: "depreciation", icon: <><path d="M4 19h16"/><path d="M7 16V8M12 16V5M17 16v-3"/><path d="M5 8l5-5 4 4 5-5"/></> },
     ],
@@ -125,7 +128,7 @@ export function AppSidebar() {
         </div>
         {!collapsed && (
           <div className="sb-brand-copy">
-            <div className="sb-brand-title">NED University</div>
+            <div className="sb-brand-title">NEDUET AMS</div>
             <div className="sb-brand-sub">Asset Management</div>
           </div>
         )}

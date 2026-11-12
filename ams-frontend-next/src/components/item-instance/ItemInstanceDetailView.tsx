@@ -404,7 +404,7 @@ export function ItemInstanceDetailView({ itemId, instanceId }: { itemId: string;
                 </Button>
                 {canManageItems && !isEditingSerial ? (
                   <Button type="button" variant="outline" size="sm" onClick={handleStartSerialEdit}>
-                    <Icon d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.1 2.1 0 113 3L12 15l-4 1 1-4 9.5-9.5Z" size={14} />
+                    <Icon d="M12 20h9 M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" size={14} />
                     Edit Instance
                   </Button>
                 ) : null}

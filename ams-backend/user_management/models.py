@@ -1,4 +1,6 @@
-from django.db import models
+import re
+
+from django.db import models, transaction, IntegrityError
 from django.contrib.auth.models import Group, User, Permission
 from django.core.exceptions import ValidationError
 from django.db.models import Q
@@ -26,9 +28,14 @@ class RoleMetadata(models.Model):
         return f"{self.group.name} metadata"
 
 
+EMPLOYEE_ID_PREFIX = "EMP-"
+EMPLOYEE_ID_PAD = 4  # EMP-0001
+_EMPLOYEE_ID_PATTERN = re.compile(r"^EMP-(\d+)$")
+
+
 class UserProfile(models.Model):
     """
-    Robust UserProfile using Django's standard Permission system 
+    Robust UserProfile using Django's standard Permission system
     combined with Location Hierarchy.
     """
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
@@ -47,6 +54,48 @@ class UserProfile(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    @classmethod
+    def _next_employee_id(cls) -> str:
+        """Compute the next EMP-#### id by scanning existing sequence-pattern ids.
+
+        Manually-assigned non-sequence ids (e.g. "FAC-2021-07") are ignored so
+        imported employees do not derail the auto-numbered run.
+        """
+        existing = cls.objects.filter(
+            employee_id__startswith=EMPLOYEE_ID_PREFIX,
+        ).values_list("employee_id", flat=True)
+        max_n = 0
+        for eid in existing:
+            match = _EMPLOYEE_ID_PATTERN.match(eid or "")
+            if match:
+                n = int(match.group(1))
+                if n > max_n:
+                    max_n = n
+        return f"{EMPLOYEE_ID_PREFIX}{max_n + 1:0{EMPLOYEE_ID_PAD}d}"
+
+    def save(self, *args, **kwargs):
+        """Auto-populate employee_id when blank.
+
+        A unique-constraint race is handled by retrying up to 3 times: on
+        IntegrityError we null the id and recompute. The final attempt is
+        allowed to raise so a true conflict surfaces rather than silently
+        looping.
+        """
+        if not self.employee_id:
+            for _ in range(3):
+                self.employee_id = type(self)._next_employee_id()
+                try:
+                    with transaction.atomic():
+                        return super().save(*args, **kwargs)
+                except IntegrityError:
+                    self.employee_id = None
+                    continue
+            # All retries exhausted — compute one more id and let it raise
+            # naturally if it still conflicts, so the caller sees a real error.
+            self.employee_id = type(self)._next_employee_id()
+            return super().save(*args, **kwargs)
+        return super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.user.username} ({self.employee_id or 'No ID'})"
@@ -335,11 +384,13 @@ class UserProfile(models.Model):
 
     def get_creatable_stock_register_stores(self):
         """
-        Stores available when creating or reassigning stock registers.
+        Locations available when creating or reassigning stock registers.
 
-        Stock-register creation is tied to directly assigned stores. Broader
-        stock-register visibility still uses get_stock_register_scope_locations,
-        but a store manager should not create ledgers for sibling stores.
+        Stock registers are owned by stores (locations flagged `is_store=True`).
+        Non-admin users may only create registers against stores that are
+        *directly* assigned to them: implicit visibility via a parent
+        standalone/department does not grant the authority to open a new
+        register book at a sibling or descendant store.
         """
         from inventory.models import Location
 
@@ -396,7 +447,7 @@ class UserProfile(models.Model):
         """
         Locations that define which user accounts this user can manage/view.
         Does NOT include the L1->L2 global-visibility shortcut used by
-        get_descendant_locations() — user management is scoped by the user's own
+        get_descendant_locations(): user management is scoped by the user's own
         assigned locations and their descendants, plus (if the user is assigned
         to a store) the departmental context of that store.
         """

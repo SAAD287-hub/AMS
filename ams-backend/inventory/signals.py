@@ -560,6 +560,17 @@ def process_stock_on_status_change(sender, instance, created, **kwargs):
                 parent.save(update_fields=['status'])
                 logger.info(f"[SIGNAL] Status Sync: Completed parent ISSUE {parent.entry_number}")
 
+        # Originating RECEIPT cancellation: reverse stock + delete auto-created instances
+        if (
+            instance.status == 'CANCELLED'
+            and instance.entry_type == 'RECEIPT'
+            and instance.from_location_id is None
+            and instance.to_location_id is not None
+        ):
+            from .services.receipt_reversal import apply_receipt_reversal
+            apply_receipt_reversal(instance)
+            logger.info(f"[SIGNAL] CANCELLED RECEIPT: Reversed stock for {instance.entry_number}")
+
         # Propagation: parent ISSUE cancellation cancels linked RECEIPT
         if instance.status == 'CANCELLED' and instance.entry_type == 'ISSUE':
             children = StockEntry.objects.filter(reference_entry=instance)
@@ -800,7 +811,7 @@ def auto_generate_stock_from_inspection(sender, instance, created, **kwargs):
 
 
 # =============================================================================
-# Hybrid copilot item search — index maintenance
+# Hybrid copilot item search - index maintenance
 # =============================================================================
 # When an Item is created or its semantic-relevant fields change, refresh the
 # tsvector and the pgvector embedding. The hash check makes the signal a
@@ -866,10 +877,10 @@ def _write_embedding(item_id: int, vector) -> bool:
 def _refresh_tsvector(item_id: int) -> None:
     """
     Rebuild the weighted tsvector for one item. Weights:
-        A — name, code            (highest)
-        B — description
-        C — specifications
-        D — category path         (lowest, broadest)
+        A - name, code            (highest)
+        B - description
+        C - specifications
+        D - category path         (lowest, broadest)
     """
     try:
         with connection.cursor() as cur:

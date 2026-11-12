@@ -24,7 +24,7 @@ from ams.voice import VoicePermitView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    # Cookie-based JWT auth (httpOnly — XSS-safe)
+    # Cookie-based JWT auth (httpOnly, XSS-safe)
     path('auth/cookie/login/', CookieLoginView.as_view(), name='cookie-login'),
     path('auth/cookie/csrf/', CsrfTokenView.as_view(), name='cookie-csrf'),
     path('auth/cookie/refresh/', CookieRefreshView.as_view(), name='cookie-refresh'),

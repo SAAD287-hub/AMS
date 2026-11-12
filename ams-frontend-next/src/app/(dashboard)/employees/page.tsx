@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Topbar } from "@/components/Topbar";
 import { LocationScopePicker } from "@/components/AddUserModal";
 import { ListPagination } from "@/components/ListPagination";
+import { formatListSummary } from "@/lib/userUiShared";
 import { ThemedSelect } from "@/components/ThemedSelect";
 import { apiFetch, type Page } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -410,7 +411,7 @@ export default function EmployeesPage() {
   };
 
   const deleteEmployee = async (employee: Employee) => {
-    if (!window.confirm(`Delete employee record for ${employee.name}?`)) return;
+    if (!window.confirm(`Delete employee record for ${employee.name}?\n\nThis cannot be undone.`)) return;
     setBusyId(employee.id);
     setActionError(null);
     try {
@@ -461,11 +462,17 @@ export default function EmployeesPage() {
 
         <div className="filter-bar employees-filter-bar">
           <div className="filter-bar-left">
-            <div className="search-input employees-search-input">
+            <label className="search-input employees-search-input">
               <Ic d={<><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></>} size={14} />
-              <input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search by name, PERSE number, designation, or unit..." />
-              {search && <button type="button" className="clear-search" onClick={() => setSearch("")}>x</button>}
-            </div>
+              <input
+                value={search}
+                onChange={event => setSearch(event.target.value)}
+                placeholder="Search by name, PERSE number, designation, or unit..."
+                onClick={e => { if (!e.currentTarget.value) e.currentTarget.setSelectionRange(0, 0); }}
+                onFocus={e => { if (!e.currentTarget.value) e.currentTarget.setSelectionRange(0, 0); }}
+              />
+              {search && <button type="button" className="clear-search" onClick={e => { e.preventDefault(); setSearch(""); }}>x</button>}
+            </label>
             <div className="filter-select-group">
               <div className="chip-filter-label">Status</div>
               <div className="filter-select-wrap">
@@ -549,7 +556,7 @@ export default function EmployeesPage() {
                         <div className="row-actions">
                           {canChange ? (
                             <Button type="button" variant="ghost" size="xs" className="row-action" onClick={() => openEdit(employee)} disabled={busyId === employee.id}>
-                              <Ic d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" size={13} />
+                              <Ic d="M12 20h9 M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" size={13} />
                               <span className="ra-label">Edit</span>
                             </Button>
                           ) : null}
@@ -574,7 +581,7 @@ export default function EmployeesPage() {
               </table>
             </div>
             <ListPagination
-              summary={filtered.length === 0 ? "Showing 0 employees" : `Showing ${pager.pageStart}-${pager.pageEnd} of ${filtered.length} employees`}
+              summary={formatListSummary(filtered.length, pager.pageStart, pager.pageEnd, "employee", "employees")}
               page={pager.page}
               totalPages={pager.totalPages}
               onPrev={() => pager.setPage(current => Math.max(1, current - 1))}
@@ -613,7 +620,7 @@ export default function EmployeesPage() {
             ))}
             {!isLoading && pager.pageItems.length > 0 ? (
               <ListPagination
-                summary={`Showing ${pager.pageStart}-${pager.pageEnd} of ${filtered.length} employees`}
+                summary={formatListSummary(filtered.length, pager.pageStart, pager.pageEnd, "employee", "employees")}
                 page={pager.page}
                 totalPages={pager.totalPages}
                 onPrev={() => pager.setPage(current => Math.max(1, current - 1))}

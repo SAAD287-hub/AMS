@@ -64,6 +64,15 @@ class StockEntry(models.Model):
         related_name='received_entries',
         help_text="Person receiving the items if issued to a person."
     )
+
+    vendor = models.ForeignKey(
+        'inventory.Vendor',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='stock_entries',
+        help_text="External vendor / supplier when a RECEIPT comes from outside the organization."
+    )
     
     reference_entry = models.ForeignKey(
         'self', 

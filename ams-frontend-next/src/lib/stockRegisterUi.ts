@@ -28,8 +28,9 @@ export function filterStockRegisters(
 }
 
 export function getActiveStoreOptions(locations: LocationRecord[]) {
+  // Stock registers live at stores only, not at arbitrary departments or labs.
   return locations
-    .filter((location) => location.is_store && location.is_active)
+    .filter((location) => location.is_active && location.is_store)
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 

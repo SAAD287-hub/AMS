@@ -108,7 +108,7 @@ export default function InspectionsListPage() {
       sortable: true,
       render: (inspection) => (
         <span className="text-sm text-muted-foreground">
-          {inspection.date ? format(new Date(inspection.date), "dd MMM yyyy") : "—"}
+          {inspection.date ? format(new Date(inspection.date), "dd MMM yyyy") : "-"}
         </span>
       ),
     },
@@ -156,7 +156,7 @@ export default function InspectionsListPage() {
 
           <div className="flex items-center justify-between pt-2">
             <span className="text-xs text-muted-foreground font-medium bg-muted/30 px-2 py-1 rounded-md">
-              {inspection.date ? format(new Date(inspection.date), "MMM dd, yyyy") : "—"}
+              {inspection.date ? format(new Date(inspection.date), "MMM dd, yyyy") : "-"}
             </span>
             <div className="flex items-center gap-2 bg-primary/5 px-2 py-1 rounded-md border border-primary/10">
               <span className="text-primary text-xs font-bold font-mono">{inspection.items?.length || 0}</span>

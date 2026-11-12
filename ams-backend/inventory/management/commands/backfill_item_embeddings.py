@@ -96,7 +96,7 @@ class Command(BaseCommand):
             )
         if not getattr(settings, 'ITEM_SEARCH_HYBRID_ENABLED', False):
             self.stdout.write(self.style.WARNING(
-                "ITEM_SEARCH_HYBRID_ENABLED is False — proceeding anyway "
+                "ITEM_SEARCH_HYBRID_ENABLED is False, proceeding anyway "
                 "since you ran this command explicitly. Remember to flip the "
                 "flag on after the backfill completes."
             ))
@@ -114,7 +114,7 @@ class Command(BaseCommand):
             .order_by('id')
         )
         if only_missing:
-            # `embedding` isn't a Django ORM field — filter via raw SQL.
+            # `embedding` isn't a Django ORM field, so filter via raw SQL.
             with connection.cursor() as cur:
                 cur.execute(
                     "SELECT id FROM inventory_item "

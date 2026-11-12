@@ -39,8 +39,10 @@ export function DropdownPortal({
     const spaceAbove = rect.top;
     const menuHeight = menuRef.current?.offsetHeight ?? 230;
     const openUp = spaceBelow < Math.min(menuHeight, 220) + edgePadding && spaceAbove > spaceBelow;
-    const left = Math.max(edgePadding, Math.min(rect.left, viewportWidth - rect.width - edgePadding));
     const width = Math.max(minWidth ?? 0, rect.width);
+    const preferredLeft = rect.right - width;
+    const maxLeft = viewportWidth - width - edgePadding;
+    const left = Math.max(edgePadding, Math.min(preferredLeft, maxLeft));
 
     setStyle({
       left,

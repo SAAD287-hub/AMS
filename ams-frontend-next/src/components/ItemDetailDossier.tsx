@@ -1185,10 +1185,10 @@ function InfoSection({ item, units }: { item: ItemRecord; units: ItemDistributio
           <div className={styles.docBlockHead}>Identification</div>
           <div className={styles.docKvs}>
             <DocKv label="Item code" value={<span className="mono">{item.code}</span>} />
-            <DocKv label="Category" value={item.category_display ?? "—"} />
+            <DocKv label="Category" value={item.category_display ?? "-"} />
             <DocKv label="Tracking" value={formatItemLabel(String(item.tracking_type ?? ""))} />
-            <DocKv label="Accounting unit" value={item.acct_unit ?? "—"} />
-            <DocKv label="Reorder threshold" value={toNumber(item.low_stock_threshold) > 0 ? `${formatQuantity(item.low_stock_threshold)} ${item.acct_unit ?? "unit"}` : "—"} />
+            <DocKv label="Accounting unit" value={item.acct_unit ?? "-"} />
+            <DocKv label="Reorder threshold" value={toNumber(item.low_stock_threshold) > 0 ? `${formatQuantity(item.low_stock_threshold)} ${item.acct_unit ?? "unit"}` : "-"} />
             <DocKv label="Standalone locations" value={<span className="mono">{units.length}</span>} />
           </div>
         </div>
@@ -1218,7 +1218,7 @@ function InfoSection({ item, units }: { item: ItemRecord; units: ItemDistributio
               <DocKv label="Current WDV / NBV" value={formatMoneyValue(dep?.current_wdv)} />
               <DocKv
                 label="Latest posted FY"
-                value={dep?.latest_posted_fiscal_year ? `${dep.latest_posted_fiscal_year}-${String(dep.latest_posted_fiscal_year + 1).slice(-2)}` : "—"}
+                value={dep?.latest_posted_fiscal_year ? `${dep.latest_posted_fiscal_year}-${String(dep.latest_posted_fiscal_year + 1).slice(-2)}` : "-"}
               />
             </div>
           </div>
@@ -1368,7 +1368,7 @@ function LocatePalette({
     persons: filtered.filter(r => r.kind === "person") as Extract<LocateRow, { kind: "person" }>[],
   }), [filtered]);
 
-  const itemShortName = item.name.split("—")[0].trim();
+  const itemShortName = item.name.split(/ - | — /)[0].trim();
 
   return (
     <>

@@ -4,7 +4,7 @@ These enforce the domain-named permissions declared in UserProfile.Meta.permissi
 (see also backend/ams/permissions_manifest.py for the admin-facing abstraction).
 
 Keep enforcement here keyed to domain verbs (view / create / edit / delete),
-NOT Django's auto-generated add/change/delete — those are for admin internals.
+NOT Django's auto-generated add/change/delete, which are for admin internals.
 """
 from rest_framework import permissions
 
@@ -22,10 +22,10 @@ class UserAccountPermission(permissions.BasePermission):
     """Gates /api/users/management/ and /api/users/profiles/.
 
     Self-edit exception: any authenticated user may GET or PATCH their own
-    record (so the profile-settings flow — avatar, name, email — works
-    without admin perms). Field-level restrictions are enforced in
+    record (so the profile-settings flow, covering avatar, name, and email,
+    works without admin perms). Field-level restrictions are enforced in
     ``UserViewSet.partial_update`` so a non-admin self-edit can only change
-    ``first_name``, ``last_name``, ``email`` and ``avatar`` — never
+    ``first_name``, ``last_name``, ``email`` and ``avatar``, and never
     ``is_superuser``, ``groups``, ``user_permissions``, etc.
     """
 
@@ -36,7 +36,7 @@ class UserAccountPermission(permissions.BasePermission):
         if user.is_superuser:
             return True
 
-        # Self-edit allowance — works for both the UserViewSet (pk == user.id)
+        # Self-edit allowance: works for both the UserViewSet (pk == user.id)
         # and UserProfileViewSet (pk == user.profile.id).
         if request.method in {"GET", "PATCH"}:
             target_pk = view.kwargs.get("pk")
@@ -77,7 +77,7 @@ class UserAccountPermission(permissions.BasePermission):
         if model is None:
             try:
                 model = view.get_queryset().model
-            except Exception:  # pragma: no cover — best-effort fallback
+            except Exception:  # pragma: no cover - best-effort fallback
                 model = None
 
         if model is not None and model.__name__ == "UserProfile":
@@ -131,7 +131,7 @@ class RolePermission(permissions.BasePermission):
 
 
 class AvailableRolePermissionsPermission(permissions.BasePermission):
-    """Gates /api/users/available-permissions/ — only role-permission assigners see the catalog."""
+    """Gates /api/users/available-permissions/: only role-permission assigners see the catalog."""
 
     def has_permission(self, request, view):
         user = request.user

@@ -70,7 +70,7 @@ class ItemSerializer(serializers.ModelSerializer):
     def validate_description(self, value):
         """
         Item description is mandatory for the agent's hybrid catalog search
-        to work — items without a description carry almost no semantic signal
+        to work, since items without a description carry almost no semantic signal
         and become invisible to inspection central-register linking.
         """
         if value is None or str(value).strip() == '':

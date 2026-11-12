@@ -1,5 +1,5 @@
 /* ============================================================
-   NED AMS — Detail page extensions
+   NED AMS - Detail page extensions
    Built on top of globals.css tokens. No new colors/fonts.
    ============================================================ */
 
@@ -353,7 +353,7 @@
   color: var(--muted-2);
   letter-spacing: 0;
 }
-.coord-empty::before { content: "—"; }
+.coord-empty::before { content: " - "; }
 
 .items-foot {
   display: flex;
@@ -915,7 +915,7 @@
 .h-rule { height: 1px; background: var(--hairline); margin: 14px 0; border: 0; }
 
 /* ============================================================
-   Item Instance — additional building blocks
+   Item Instance - additional building blocks
    ============================================================ */
 
 /* ---------- Hero strip (identity + QR + status) ---------- */

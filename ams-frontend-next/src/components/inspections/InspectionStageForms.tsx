@@ -449,7 +449,7 @@ export function Stage1Form({ data, onChange, readOnly }: StageFormProps) {
             </div>
             {!readOnly && data.items.length > 1 ? (
               <Button type="button" variant="outline" size="xs" className="btn-danger-ghost" onClick={() => removeItem(index)}>
-                <InspectionIcon d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0l1 12h6l1-12" size={12} />
+                <InspectionIcon d="M3 6h18 M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6 M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2 M10 11v6 M14 11v6" size={12} />
                 Remove
               </Button>
             ) : null}

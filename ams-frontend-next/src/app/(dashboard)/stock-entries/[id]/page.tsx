@@ -79,6 +79,9 @@ interface StockEntryRecord {
   to_location_name?: string | null;
   issued_to: number | null;
   issued_to_name?: string | null;
+  vendor?: number | null;
+  vendor_name?: string | null;
+  vendor_code?: string | null;
   status: EntryStatus;
   remarks: string | null;
   purpose: string | null;
@@ -251,7 +254,7 @@ function firstRegisterRef(entry: StockEntryRecord) {
 }
 
 function firstAckRegisterRef(entry: StockEntryRecord, related: RelatedEntries) {
-  if (hasImplicitInspectionSource(entry)) return firstRegisterRef(entry);
+  if (hasImplicitInspectionSource(entry) || isVendorReceipt(entry)) return firstRegisterRef(entry);
   const items = entry.entry_type === "ISSUE" ? related.linkedReceipt?.items ?? [] : entry.items;
   const item = items.find(candidate => candidate.ack_stock_register_name || candidate.ack_page_number);
   if (!item) return "Register pending";
@@ -285,6 +288,17 @@ function quantityVerb(entry: StockEntryRecord) {
   return "issued";
 }
 
+function isVendorReceipt(entry: StockEntryRecord) {
+  return entry.entry_type === "RECEIPT" && Boolean(entry.vendor);
+}
+
+function needsAcknowledgement(entry: StockEntryRecord) {
+  // Vendor receipts and inspection-driven receipts complete immediately, no two-sided ack.
+  if (isVendorReceipt(entry)) return false;
+  if (entry.entry_type === "RECEIPT" && entry.inspection_certificate != null) return false;
+  return true;
+}
+
 function hasImplicitInspectionSource(entry: StockEntryRecord) {
   return (
     entry.entry_type === "RECEIPT" &&
@@ -293,7 +307,7 @@ function hasImplicitInspectionSource(entry: StockEntryRecord) {
 }
 
 function acknowledgementMeta(entry: StockEntryRecord, related: RelatedEntries) {
-  if (hasImplicitInspectionSource(entry)) {
+  if (hasImplicitInspectionSource(entry) || isVendorReceipt(entry)) {
     return {
       by: null as string | null,
       at: null as string | null,
@@ -467,7 +481,7 @@ function effectiveInstances(entry: StockEntryRecord, item: StockEntryItemRecord,
 
 function resolveLine(entry: StockEntryRecord, item: StockEntryItemRecord, related: RelatedEntries): LineResolution {
   const mirror = entry.entry_type === "ISSUE" ? findReceiptMirror(related.linkedReceipt, item) : null;
-  if (hasImplicitInspectionSource(entry)) {
+  if (hasImplicitInspectionSource(entry) || isVendorReceipt(entry)) {
     const accepted = item.accepted_quantity ?? item.quantity;
     return { accepted, returned: Math.max(0, item.quantity - accepted), mirror };
   }
@@ -477,7 +491,7 @@ function resolveLine(entry: StockEntryRecord, item: StockEntryItemRecord, relate
 }
 
 function lineRegisterRef(entry: StockEntryRecord, item: StockEntryItemRecord, line: LineResolution) {
-  if (entry.entry_type === "ISSUE" || hasImplicitInspectionSource(entry)) {
+  if (entry.entry_type === "ISSUE" || hasImplicitInspectionSource(entry) || isVendorReceipt(entry)) {
     return formatRegisterRef(item.stock_register_name, item.page_number, "-");
   }
 
@@ -794,23 +808,34 @@ function DetailSwitcher() {
     <div className="stock-detail-switcher">
       <button className="ds-btn" data-active="true" type="button">
         <Ic d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6" size={13} />
-        Stock Entry — detail
+        Stock Entry - detail
       </button>
       <button className="ds-btn" data-active="false" type="button">
         <Ic d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" size={13} />
-        Inspection Certificate — detail
+        Inspection Certificate - detail
       </button>
       <span className="stock-detail-switcher-note">prototype: switch between the two detail page designs</span>
     </div>
   );
 }
 
-function StockVoucherHead({ entry, related }: { entry: StockEntryRecord; related: RelatedEntries }) {
+function StockVoucherHead({ entry, related, onEdit, onDelete }: { entry: StockEntryRecord; related: RelatedEntries; onEdit: () => void; onDelete: () => void }) {
   const summary = typeSummary(entry);
   const entryAt = formatDate(entry.entry_date);
   const register = relevantRegisterRef(entry, related);
   const target = entryTarget(entry);
   const source = entrySource(entry);
+  const canEdit = entry.status === "DRAFT";
+  const canDelete = entry.can_delete !== false;
+  const deleteDisabledReason = !canDelete
+    ? "Delete is blocked because this entry has downstream references (acknowledgements, allocations, or linked records). Cancel or reverse it instead."
+    : undefined;
+  const statusText = entry.status === "PENDING_ACK"
+    ? "In transit · Awaiting acknowledgement"
+    : entry.status === "COMPLETED"
+      ? isVendorReceipt(entry) ? "Received & recorded" : "Completed"
+      : formatLabel(entry.status);
+  const showRegister = register !== "Register pending";
 
   return (
     <div className="page-head-detail stock-voucher-head">
@@ -823,15 +848,31 @@ function StockVoucherHead({ entry, related }: { entry: StockEntryRecord; related
         <div className="page-id-row">
           <span className={`pill ${entry.status === "PENDING_ACK" ? "pill-info" : statusTone(entry.status)} pill-lg`}>
             <span className={`status-dot ${entry.status === "COMPLETED" ? "active" : "inactive"}`} />
-            {entry.status === "PENDING_ACK" ? "In transit · Awaiting acknowledgment" : formatLabel(entry.status)}
+            {statusText}
           </span>
           <span className="doc-meta">
             <span className="dot-sep">·</span>
             <span>{entryDateVerb(entry)} {entryAt}</span>
-            <span className="dot-sep">·</span>
-            <span>Register {register}</span>
+            {showRegister ? (
+              <>
+                <span className="dot-sep">·</span>
+                <span>Register: {register}</span>
+              </>
+            ) : null}
           </span>
         </div>
+      </div>
+      <div className="page-head-actions" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        {canEdit ? (
+          <button type="button" className="btn btn-sm" onClick={onEdit} title="Edit this draft entry">
+            <Ic d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" size={14} />
+            <span style={{ marginLeft: 6 }}>Edit</span>
+          </button>
+        ) : null}
+        <button type="button" className="btn btn-sm btn-danger-ghost" onClick={onDelete} disabled={!canDelete} title={deleteDisabledReason}>
+          <Ic d={<><path d="M3 6h18" /><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" /><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2" /><path d="M10 11v6" /><path d="M14 11v6" /></>} size={14} />
+          <span style={{ marginLeft: 6 }}>Delete</span>
+        </button>
       </div>
     </div>
   );
@@ -870,14 +911,23 @@ function AcknowledgementNotice({ entry, related, onAcknowledge }: { entry: Stock
 function RoutingPanel({ entry, related }: { entry: StockEntryRecord; related: RelatedEntries }) {
   const sourcePerson = entry.created_by_name ?? "Unknown";
   const ack = acknowledgementMeta(entry, related);
+  const creationVerb = entry.entry_type === "RECEIPT" ? "Recorded by" : "Issued by";
+  const sourceSub = entry.entry_type === "ISSUE"
+    ? firstRegisterRef(entry)
+    : isVendorReceipt(entry)
+      ? (entry.vendor_code ? `Vendor code: ${entry.vendor_code}` : "External supplier")
+      : "Source outside the store network";
+  const destSub = entry.entry_type === "ISSUE"
+    ? "Register captured when the receiver acknowledges"
+    : firstAckRegisterRef(entry, related);
 
   return (
     <div className="routing">
       <div className="routing-end">
         <div className="role">From · {entry.entry_type === "RECEIPT" ? "Source" : "Source store"}</div>
         <div className="name">{entrySource(entry)}</div>
-        <div className="sub">{entry.entry_type === "ISSUE" ? firstRegisterRef(entry) : "Source register not shown on receipt voucher"}</div>
-        <div className="person">Issued by {sourcePerson}</div>
+        <div className="sub">{sourceSub}</div>
+        <div className="person">{creationVerb} {sourcePerson}</div>
       </div>
       <div className="routing-arrow">
         <span className="arrow">{formatLabel(entry.entry_type)} <Ic d="M5 12h14M13 5l7 7-7 7" size={15} /></span>
@@ -885,7 +935,7 @@ function RoutingPanel({ entry, related }: { entry: StockEntryRecord; related: Re
       <div className="routing-end">
         <div className="role">To · {entryTargetRole(entry)}</div>
         <div className="name">{entryTarget(entry)}</div>
-        <div className="sub">{entry.entry_type === "ISSUE" ? "Destination register captured on receipt voucher" : firstAckRegisterRef(entry, related)}</div>
+        <div className="sub">{destSub}</div>
         <div className="person">Recipient: {ack.by ?? entryTarget(entry)}</div>
       </div>
     </div>
@@ -1085,19 +1135,35 @@ function VoucherDetailsCard({ entry, related }: { entry: StockEntryRecord; relat
 function StatusAsideCard({ entry, related }: { entry: StockEntryRecord; related: RelatedEntries }) {
   const stats = acknowledgementTotals(entry, related);
   const pending = entry.status === "PENDING_ACK";
+  const ackRequired = needsAcknowledgement(entry);
+  const totalLine = `${stats.sent} unit${stats.sent === 1 ? "" : "s"} ${quantityVerb(entry)}`;
+  const balanceLine = ackRequired
+    ? `${stats.accepted ?? "-"} accepted · ${stats.returned ?? "-"} returned`
+    : entry.entry_type === "RECEIPT"
+      ? "Added to inventory, no two-sided acknowledgement needed"
+      : "No acknowledgement required";
+  const nextAction = entry.status === "CANCELLED"
+    ? "Entry cancelled, no further action"
+    : pending
+      ? "Receiving side acknowledgement"
+      : "No action required";
 
   return (
     <div className="card">
       <div className="card-head"><h3>Entry details</h3></div>
       <div className="card-body card-body-tight" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <div className="kv"><div className="kv-label">Quantity balance</div><div className="kv-value mono">{stats.sent} {quantityVerb(entry)} · {stats.accepted ?? "-"} accepted · {stats.returned ?? "-"} returned</div></div>
+        <div className="kv">
+          <div className="kv-label">Quantity</div>
+          <div className="kv-value mono">{totalLine}</div>
+          <div className="kv-sub">{balanceLine}</div>
+        </div>
         <div className="kv">
           <div className="kv-label">Purpose / Remarks</div>
           <div className="kv-value">{entry.purpose ?? entry.remarks ?? "No purpose or remarks recorded."}</div>
           {entry.purpose && entry.remarks ? <div className="kv-sub">{entry.remarks}</div> : null}
         </div>
         <hr className="h-rule" />
-        <div className="kv"><div className="kv-label">Next action</div><div className="kv-value">{pending ? "Receiving side acknowledgement" : "No action required"}</div></div>
+        <div className="kv"><div className="kv-label">Next action</div><div className="kv-value">{nextAction}</div></div>
       </div>
     </div>
   );
@@ -1173,6 +1239,28 @@ function AsideSummaryCard({ entry, related }: { entry: StockEntryRecord; related
 
 function WorkflowHistoryCard({ entry, related }: { entry: StockEntryRecord; related: RelatedEntries }) {
   const ack = acknowledgementMeta(entry, related);
+  const ackRequired = needsAcknowledgement(entry);
+  const firstStepTitle = entry.entry_type === "RECEIPT"
+    ? isVendorReceipt(entry)
+      ? "recorded vendor receipt"
+      : "recorded receipt"
+    : entry.entry_type === "RETURN"
+      ? "recorded return"
+      : "issued stock entry";
+  const secondStepTitle = ack.at
+    ? <><span className="who">{ack.by ?? "Receiver"}</span> acknowledged movement</>
+    : ackRequired
+      ? "Acknowledgement pending"
+      : entry.entry_type === "RECEIPT"
+        ? "Stock added to inventory, no acknowledgement needed"
+        : "No acknowledgement required";
+  const secondStepSub = ack.at
+    ? "receiver register captured"
+    : ackRequired
+      ? "waiting for receiving side"
+      : entry.entry_type === "RECEIPT"
+        ? "originating receipt auto-completes"
+        : "system-generated receipt source";
 
   return (
     <div className="card">
@@ -1184,15 +1272,15 @@ function WorkflowHistoryCard({ entry, related }: { entry: StockEntryRecord; rela
         <div className="tl-item">
           <div className="tl-dot info" />
           <div className="tl-content">
-            <div className="tl-title"><span className="who">{entry.created_by_name ?? "Unknown"}</span> issued stock entry</div>
+            <div className="tl-title"><span className="who">{entry.created_by_name ?? "Unknown"}</span> {firstStepTitle}</div>
             <div className="tl-meta"><span>{formatLabel(entry.entry_type)}</span><span className="dot-sep">·</span><span className="when">{formatDate(entry.created_at)}</span></div>
           </div>
         </div>
         <div className="tl-item">
-          <div className={`tl-dot ${entry.status === "PENDING_ACK" ? "warn" : ack.at ? "ok" : ""}`} />
+          <div className={`tl-dot ${entry.status === "PENDING_ACK" ? "warn" : ack.at || !ackRequired ? "ok" : ""}`} />
           <div className="tl-content">
-            <div className="tl-title">{ack.at ? <><span className="who">{ack.by ?? "Receiver"}</span> acknowledged movement</> : ack.isRequired ? "Acknowledgement pending" : "No acknowledgement required"}</div>
-            <div className="tl-meta"><span>{ack.at ? "receiver register captured" : ack.isRequired ? "waiting for receiving side" : "system-generated receipt source"}</span><span className="dot-sep">·</span><span className="when">{ack.at ? formatDate(ack.at) : "-"}</span></div>
+            <div className="tl-title">{secondStepTitle}</div>
+            <div className="tl-meta"><span>{secondStepSub}</span><span className="dot-sep">·</span><span className="when">{ack.at ? formatDate(ack.at) : "-"}</span></div>
           </div>
         </div>
         {entry.cancelled_at ? (
@@ -1211,6 +1299,10 @@ function WorkflowHistoryCard({ entry, related }: { entry: StockEntryRecord; rela
 
 function SignoffSection({ entry, related }: { entry: StockEntryRecord; related: RelatedEntries }) {
   const ack = acknowledgementMeta(entry, related);
+  const creatorRole =
+    entry.entry_type === "RECEIPT" ? "Recorded by"
+    : entry.entry_type === "RETURN" ? "Returned by"
+    : "Issued by";
 
   return (
     <div>
@@ -1220,7 +1312,7 @@ function SignoffSection({ entry, related }: { entry: StockEntryRecord; related: 
       </div>
       <div className="signoff" style={{ gridTemplateColumns: "repeat(2, 1fr)" }}>
         <div className="so">
-          <div className="so-role">Issued by</div>
+          <div className="so-role">{creatorRole}</div>
           <div className="so-name">{entry.created_by_name ?? "Unknown"}</div>
           <div className="so-sig">{signature(entry.created_by_name)}</div>
           <div className="so-when">{formatDate(entry.created_at)}</div>
@@ -1469,12 +1561,60 @@ function AckForm({ entry, related, registers, instances, onDone, onCancel }: { e
   }])) as Record<number, { quantity: number; instances: string[]; ack_stock_register: string; ack_page_number: string }>);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [extraRegisters, setExtraRegisters] = useState<StockRegisterRecord[]>([]);
+  const [newRegisterItemId, setNewRegisterItemId] = useState<number | null>(null);
+  const [newRegisterNumber, setNewRegisterNumber] = useState("");
+  const [newRegisterBusy, setNewRegisterBusy] = useState(false);
+  const [newRegisterError, setNewRegisterError] = useState<string | null>(null);
   const isReturn = entry.entry_type === "RETURN";
   const instanceMap = useMemo(() => new Map(instances.map(instance => [instance.id, instance])), [instances]);
   const ackRegisters = useMemo(
-    () => registers.filter(register => register.is_active && register.store === entry.to_location),
-    [entry.to_location, registers],
+    () => [...registers, ...extraRegisters].filter(register => register.is_active && register.store === entry.to_location),
+    [entry.to_location, registers, extraRegisters],
   );
+
+  const openNewRegister = (itemId: number) => {
+    setNewRegisterItemId(itemId);
+    setNewRegisterNumber("");
+    setNewRegisterError(null);
+  };
+  const closeNewRegister = () => {
+    setNewRegisterItemId(null);
+    setNewRegisterNumber("");
+    setNewRegisterError(null);
+  };
+  const submitNewRegister = async () => {
+    if (newRegisterItemId == null) return;
+    const trimmed = newRegisterNumber.trim();
+    if (!trimmed) { setNewRegisterError("Register number is required."); return; }
+    if (!entry.to_location) { setNewRegisterError("Destination store is missing on this entry."); return; }
+    const duplicate = ackRegisters.find(r => r.register_number.trim().toLowerCase() === trimmed.toLowerCase());
+    if (duplicate) {
+      setNewRegisterError(`A register named "${duplicate.register_number}" already exists here. Pick it from the dropdown.`);
+      return;
+    }
+    setNewRegisterBusy(true);
+    setNewRegisterError(null);
+    try {
+      const created = await apiFetch<StockRegisterRecord>("/api/inventory/stock-registers/", {
+        method: "POST",
+        body: JSON.stringify({ register_number: trimmed, store: Number(entry.to_location), is_active: true }),
+      });
+      setExtraRegisters(prev => [...prev, created]);
+      const itemId = newRegisterItemId;
+      setValues(prev => ({ ...prev, [itemId]: { ...prev[itemId], ack_stock_register: String(created.id), ack_page_number: prev[itemId].ack_page_number || "1" } }));
+      closeNewRegister();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not create register.";
+      if (/already exists|must make a unique set|duplicate key/i.test(message)) {
+        setNewRegisterError(`A register named "${trimmed}" already exists here. Pick it from the dropdown instead.`);
+      } else {
+        setNewRegisterError(message);
+      }
+    } finally {
+      setNewRegisterBusy(false);
+    }
+  };
 
   const update = (id: number, patch: Partial<(typeof values)[number]>) => {
     setValues(prev => ({ ...prev, [id]: { ...prev[id], ...patch } }));
@@ -1515,6 +1655,12 @@ function AckForm({ entry, related, registers, instances, onDone, onCancel }: { e
   return (
     <div className="stock-ack-form">
       <div className="stock-ack-form-inner">
+        <div className="stock-entry-help" style={{ margin: "0 0 16px" }}>
+          <div className="stock-entry-help-title">Acknowledging a movement</div>
+          <div className="stock-entry-help-body">
+            Confirm what you actually received at this destination. Accepted quantity can be less than sent if some units were damaged or wrong, and the difference is recorded as a return. Capture the destination <strong>register + page number</strong> from the physical ledger where you logged this receipt. Once submitted, this entry closes and stock is officially credited here.
+          </div>
+        </div>
         {error && <Alert>{error}</Alert>}
         {entry.items.map(item => {
           const row = values[item.id];
@@ -1540,22 +1686,30 @@ function AckForm({ entry, related, registers, instances, onDone, onCancel }: { e
                   <input className="input" type="number" min="1" max={item.quantity} value={row.quantity} disabled={isReturn || itemInstances.length > 0} onChange={event => update(item.id, { quantity: Number(event.target.value) })} />
                   </Field>
                   <Field label="Register">
-                    <ThemedSelect
-                      value={row.ack_stock_register}
-                      onChange={value => update(item.id, { ack_stock_register: value })}
-                      placeholder="Choose register"
-                      ariaLabel="Register"
-                      options={ackRegisters.map(register => ({
-                        value: String(register.id),
-                        label: register.register_number,
-                        meta: register.store_name ?? "",
-                      }))}
-                    />
-                    {!ackRegisters.length ? (
-                    <div className="login-cell-sub" style={{ marginTop: 6 }}>
-                      No active register found for {entry.to_location_name ?? "this destination store"}.
+                    <div style={{ display: "flex", gap: 6, alignItems: "stretch" }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <ThemedSelect
+                          value={row.ack_stock_register}
+                          onChange={value => update(item.id, { ack_stock_register: value })}
+                          placeholder={ackRegisters.length ? "Choose register" : "No register yet, click + New"}
+                          ariaLabel="Register"
+                          disabled={!ackRegisters.length}
+                          options={ackRegisters.map(register => ({
+                            value: String(register.id),
+                            label: register.register_number,
+                            meta: register.store_name ?? "",
+                          }))}
+                        />
+                      </div>
+                      <button type="button" className="btn btn-sm" onClick={() => openNewRegister(item.id)} title={`Create a new register for ${entry.to_location_name ?? "this store"}`}>
+                        + New
+                      </button>
                     </div>
-                  ) : null}
+                    {!ackRegisters.length ? (
+                      <div className="login-cell-sub" style={{ marginTop: 6 }}>
+                        No active register found for {entry.to_location_name ?? "this destination store"}. Click <strong>+ New</strong> to add one.
+                      </div>
+                    ) : null}
                 </Field>
                 <Field label="Page">
                   <input className="input" type="number" min="1" value={row.ack_page_number} onChange={event => update(item.id, { ack_page_number: event.target.value })} />
@@ -1597,6 +1751,37 @@ function AckForm({ entry, related, registers, instances, onDone, onCancel }: { e
           </button>
         </div>
       </div>
+      {newRegisterItemId != null && (
+        <div className="modal-backdrop" style={{ zIndex: 260 }} onMouseDown={e => { if (e.target === e.currentTarget) closeNewRegister(); }}>
+          <div className="modal" role="dialog" aria-modal="true" style={{ maxWidth: 440 }}>
+            <div className="modal-head">
+              <h2>Create new register</h2>
+              <button type="button" className="modal-close" onClick={closeNewRegister} aria-label="Close">×</button>
+            </div>
+            <div className="modal-body">
+              <div style={{ padding: "16px 20px", display: "grid", gap: 10 }}>
+                <div className="login-cell-sub">
+                  A fresh register for <strong>{entry.to_location_name ?? "this store"}</strong>. Use this to record acknowledgements in the physical ledger.
+                </div>
+                {newRegisterError && (
+                  <div style={{ padding: "8px 12px", background: "var(--danger-weak)", border: "1px solid color-mix(in oklch, var(--danger) 30%, transparent)", borderRadius: "var(--radius)", color: "var(--danger)", fontSize: 13 }}>{newRegisterError}</div>
+                )}
+                <div className="field">
+                  <div className="field-label">Register number <span className="field-req">*</span></div>
+                  <input className="input" value={newRegisterNumber} onChange={e => setNewRegisterNumber(e.target.value.toUpperCase())} placeholder="e.g. CSIT-REG-001" autoFocus spellCheck={false} />
+                  <div className="field-hint">Short unique label for this store&apos;s register book.</div>
+                </div>
+              </div>
+            </div>
+            <div className="modal-foot">
+              <div className="modal-foot-actions" style={{ display: "flex", gap: 8, justifyContent: "flex-end", padding: "12px 20px" }}>
+                <button type="button" className="btn" onClick={closeNewRegister} disabled={newRegisterBusy}>Cancel</button>
+                <button type="button" className="btn btn-primary" onClick={() => { void submitNewRegister(); }} disabled={newRegisterBusy}>{newRegisterBusy ? "Creating…" : "Create register"}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2206,6 +2391,25 @@ export default function StockEntryDetailPage() {
     }
   }, [entry, load]);
 
+  const deleteEntry = useCallback(async () => {
+    if (!entry) return;
+    const confirmed = window.confirm(
+      `Delete stock entry ${entry.entry_number}?\n\nThis action cannot be undone. Any stock balance effects from this entry will also be reversed.`,
+    );
+    if (!confirmed) return;
+    try {
+      await apiFetch(`/api/inventory/stock-entries/${entry.id}/`, { method: "DELETE" });
+      router.push("/stock-entries");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete stock entry");
+    }
+  }, [entry, router]);
+
+  const openEdit = useCallback(() => {
+    if (!entry) return;
+    router.push(`/stock-entries?edit=${entry.id}`);
+  }, [entry, router]);
+
   const handleCorrectionDone = useCallback(async (correction: CorrectionSubmitResult) => {
     await load();
     setActionNotice(correctionSubmittedMessage(correction));
@@ -2315,7 +2519,7 @@ export default function StockEntryDetailPage() {
               <Ic d="M19 12H5M12 19l-7-7 7-7" size={12} />
               Back to Stock Entries
             </Link>
-            <StockVoucherHead entry={entry} related={related} />
+            <StockVoucherHead entry={entry} related={related} onEdit={openEdit} onDelete={deleteEntry} />
             <CorrectionActionsPanel
               entry={entry}
               canApproveCorrections={canApproveCorrections}

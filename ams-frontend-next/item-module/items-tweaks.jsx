@@ -1,5 +1,5 @@
 /* ============================================================
-   NED AMS — Items module Tweaks panel
+   NED AMS - Items module Tweaks panel
    ============================================================ */
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{

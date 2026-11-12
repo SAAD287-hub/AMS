@@ -1,6 +1,6 @@
 from django.conf import settings
 from django.contrib.auth import authenticate
-from django.contrib.auth.models import User
+from django.contrib.auth.models import User, update_last_login
 from django.middleware.csrf import get_token, rotate_token
 from rest_framework.authentication import SessionAuthentication
 from rest_framework import status
@@ -95,6 +95,7 @@ class CookieLoginView(APIView):
             )
 
         rotate_token(request)
+        update_last_login(None, user)
         refresh = RefreshToken.for_user(user)
         response = Response({'detail': 'Login successful.'}, status=status.HTTP_200_OK)
         _set_token_cookies(response, str(refresh.access_token), str(refresh))
@@ -105,7 +106,7 @@ class CookieRefreshView(APIView):
     """
     POST /auth/cookie/refresh/
     Reads ams_refresh cookie, returns a new ams_access cookie.
-    No throttle — a valid refresh cookie is required, so there is no
+    No throttle: a valid refresh cookie is required, so there is no
     brute-force risk, and the global anonymous throttle would wrongly
     block legitimate silent refreshes.
     """

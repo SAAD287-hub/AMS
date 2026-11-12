@@ -27,7 +27,7 @@ from inventory.services.embeddings import (
 
 
 # ---------------------------------------------------------------------------
-# Pure unit tests — text construction & hashing
+# Pure unit tests - text construction & hashing
 # ---------------------------------------------------------------------------
 
 class EmbeddingTextShapeTests(TestCase):
@@ -76,7 +76,7 @@ class EmbeddingTextShapeTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Signal dedupe — re-embed only when input fields change
+# Signal dedupe - re-embed only when input fields change
 # ---------------------------------------------------------------------------
 
 @override_settings(ITEM_SEARCH_HYBRID_ENABLED=True)
@@ -115,7 +115,7 @@ class ItemPostSaveSignalTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Endpoint guard — feature flag and DB vendor short-circuit cleanly
+# Endpoint guard - feature flag and DB vendor short-circuit cleanly
 # ---------------------------------------------------------------------------
 
 class CopilotSearchEndpointTests(TestCase):
@@ -204,7 +204,7 @@ class CopilotSearchEndpointTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Postgres-only integration test — semantic similarity floor
+# Postgres-only integration test - semantic similarity floor
 # ---------------------------------------------------------------------------
 
 from unittest import skipUnless

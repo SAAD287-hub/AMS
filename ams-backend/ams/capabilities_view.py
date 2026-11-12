@@ -1,4 +1,4 @@
-"""GET /auth/capabilities/ — the frontend's single source of truth for what the
+"""GET /auth/capabilities/: the frontend's single source of truth for what the
 logged-in user can see and do.
 
 Returns:
@@ -12,7 +12,7 @@ Returns:
     }
 
 The `manifest` field exposes the level names per module so the role-edit UI can
-render the same radio groups the backend understands — without the frontend
+render the same radio groups the backend understands, without the frontend
 hardcoding the shape.
 """
 from rest_framework.decorators import api_view, permission_classes

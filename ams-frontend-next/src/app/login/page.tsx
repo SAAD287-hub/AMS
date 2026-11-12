@@ -33,7 +33,7 @@ export default function LoginPage() {
 
   return (
     <div className="login-v2">
-      {/* Left — institutional signage */}
+      {/* Left - institutional signage */}
       <div className="login-v2-left">
         <div className="login-v2-overlay">
           <div className="login-v2-center">
@@ -52,7 +52,7 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* Right — form */}
+      {/* Right - form */}
       <div className="login-v2-right">
         <div className="login-v2-form-frame">
           <div className="login-v2-head">

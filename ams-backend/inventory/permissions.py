@@ -141,7 +141,7 @@ class ItemReadPermission(permissions.BasePermission):
 class ItemCopilotSearchPermission(permissions.BasePermission):
     """
     Gate for the agent-only POST /items/copilot-search/ endpoint. Uses POST
-    because the search payload is structured, but is logically a read — so
+    because the search payload is structured, but is logically a read, so
     we only require view_items, not create_items.
     """
 

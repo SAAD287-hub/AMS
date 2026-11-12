@@ -1,3 +1,16 @@
+export function formatListSummary(
+  total: number,
+  pageStart: number,
+  pageEnd: number,
+  nounSingular: string,
+  nounPlural: string,
+): string {
+  if (total === 0) return `No ${nounPlural}`;
+  if (total === 1) return `1 ${nounSingular}`;
+  if (pageStart === 1 && pageEnd === total) return `All ${total} ${nounPlural}`;
+  return `Showing ${pageStart}–${pageEnd} of ${total} ${nounPlural}`;
+}
+
 export interface User {
   id: number;
   username: string;
@@ -105,6 +118,7 @@ export interface StockRegisterRecord {
 }
 
 export const LOCATION_TYPE_LABELS: Record<string, string> = {
+  UNIVERSITY: "University",
   DEPARTMENT: "Department",
   BUILDING: "Building",
   ROOM: "Room",

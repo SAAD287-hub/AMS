@@ -609,7 +609,7 @@ function UserRow({
         </div>
       </td>
       <td className="col-eid mono">{u.employee_id}</td>
-      <td><TimestampCell value={u.created_at} fallback="—" /></td>
+      <td><TimestampCell value={u.created_at} fallback="-" /></td>
       <td><LocationChips locs={u.assigned_locations_display} power_level={u.power_level} /></td>
       <td>
         <div className="group-cell">
@@ -671,7 +671,7 @@ function UserCard({
       <div className="user-card-eid mono">{u.employee_id}</div>
       <div className="user-card-section">
         <div className="eyebrow">Created At</div>
-        <TimestampCell value={u.created_at} fallback="—" />
+        <TimestampCell value={u.created_at} fallback="-" />
       </div>
       <div className="user-card-section">
         <div className="eyebrow">Locations</div>

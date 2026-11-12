@@ -59,4 +59,4 @@ class StockRegister(models.Model):
         ]
 
     def __str__(self):
-        return f"Register {self.register_number} — {self.store.name}"
+        return f"Register {self.register_number} - {self.store.name}"

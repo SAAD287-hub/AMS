@@ -15,7 +15,7 @@ type NamedOption = {
   designation?: string | null;
   department?: string | null;
   // Parent location display name (when this option is a sub-location). The
-  // visible UI dropdown does NOT use this — it's only included in the agent's
+  // visible UI dropdown does NOT use this, it's only included in the agent's
   // option catalog so the agent can disambiguate sub-locations whose names
   // collide across parents (e.g. "Central Store" under NED vs. another root).
   parent_location_display?: string | null;

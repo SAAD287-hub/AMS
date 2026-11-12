@@ -989,9 +989,9 @@ function DistRowNode({
             </button>
           ) : null}
         </span>
-        <span className={styles.cell}>{passiveTarget ? "—" : formatQuantity(row.allocated)}</span>
-        <span className={styles.cell}>{passiveTarget ? "—" : formatQuantity(row.available)}</span>
-        <span className={styles.cell}>{passiveTarget ? "—" : formatQuantity(row.inTransit)}</span>
+        <span className={styles.cell}>{passiveTarget ? "-" : formatQuantity(row.allocated)}</span>
+        <span className={styles.cell}>{passiveTarget ? "-" : formatQuantity(row.available)}</span>
+        <span className={styles.cell}>{passiveTarget ? "-" : formatQuantity(row.inTransit)}</span>
         <span className={styles.cellTotal}>
           {formatQuantity(row.total)}
           <em>{acctUnit}</em>

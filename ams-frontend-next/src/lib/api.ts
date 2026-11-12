@@ -54,6 +54,54 @@ function collectFieldErrors(
   });
 }
 
+// Converts technical / backend error strings into friendlier end-user phrasing.
+// Only rewrites patterns we know are confusing; otherwise returns the input as-is.
+export function friendlyMessage(raw: string): string {
+  if (!raw) return raw;
+  const msg = raw.trim();
+  const lower = msg.toLowerCase();
+
+  // Common Django / DRF / database patterns
+  if (lower.includes("duplicate key value") || lower.includes("already exists")) {
+    return "This value is already in use. Please choose a different one.";
+  }
+  if (lower.includes("csrf")) {
+    return "Your session has expired. Please refresh the page and try again.";
+  }
+  if (lower.includes("authentication credentials were not provided")) {
+    return "You need to sign in to perform this action.";
+  }
+  if (lower.includes("permission") && lower.includes("denied")) {
+    return "You do not have permission to perform this action.";
+  }
+  if (lower.includes("integrityerror") || lower.includes("foreign key") || lower.includes("constraint failed")) {
+    return "This record is linked to other data and cannot be changed or removed in this way.";
+  }
+  if (lower.includes("not found") || lower === "404" || lower.includes("does not exist")) {
+    return "The requested record was not found. It may have been removed.";
+  }
+  if (lower.includes("network") && (lower.includes("fail") || lower.includes("error"))) {
+    return "Could not reach the server. Please check your connection and try again.";
+  }
+  if (lower === "500" || lower.includes("internal server error") || lower.startsWith("http 500")) {
+    return "Something went wrong on the server. Please try again or contact support.";
+  }
+  if (lower.startsWith("http 4")) {
+    return "The request was rejected. Please review the form and try again.";
+  }
+  if (lower.includes("this field is required") || lower.includes("may not be blank") || lower.includes("may not be null")) {
+    return "This field is required.";
+  }
+  if (lower.includes("invalid date")) {
+    return "Please enter a valid date.";
+  }
+  if (lower.includes("invalid email")) {
+    return "Please enter a valid email address.";
+  }
+
+  return msg;
+}
+
 export function extractApiErrorDetails(body: unknown): ApiErrorDetails {
   const fieldErrors: Record<string, string> = {};
   const globalErrors: string[] = [];
@@ -78,8 +126,14 @@ export function extractApiErrorDetails(body: unknown): ApiErrorDetails {
   globalErrors.push(...stringList(record.non_field_errors));
   collectFieldErrors(record, "", fieldErrors);
 
-  const fieldMessages = Object.entries(fieldErrors).map(([key, value]) => `${key}: ${value}`);
-  const messages = [...globalErrors, ...fieldMessages];
+  const capitalize = (s: string) => (s.length > 0 ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+  const fieldMessages = Object.entries(fieldErrors)
+    .map(([key, value]) => {
+      const msg = capitalize(friendlyMessage(String(value).trim()));
+      return msg ? `${key}: ${msg}` : "";
+    })
+    .filter(Boolean);
+  const messages = [...globalErrors.map(friendlyMessage).map(capitalize), ...fieldMessages];
   if (fieldMessages.length > 0) {
     return { message: messages.join(" "), fieldErrors, globalErrors };
   }
@@ -141,29 +195,41 @@ export async function apiRequest(path: string, options?: RequestInit): Promise<R
   return await refreshInFlight ? send() : res;
 }
 
+function getTopLoader(): { start(): void; done(): void } | null {
+  if (typeof window === 'undefined') return null;
+  const loader = (window as unknown as { __topLoader?: { start(): void; done(): void } }).__topLoader;
+  return loader ?? null;
+}
+
 export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const headers = new Headers(options?.headers);
   if (!(typeof FormData !== 'undefined' && options?.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
-  const res = await apiRequest(path, { ...options, headers });
+  const loader = getTopLoader();
+  loader?.start();
+  try {
+    const res = await apiRequest(path, { ...options, headers });
 
-  if (!res.ok) {
-    let message = `HTTP ${res.status}`;
-    let body: unknown;
-    try {
-      body = await res.json();
-      message = formatApiError(body) ?? message;
-    } catch {
-      /* ignore parse error */
+    if (!res.ok) {
+      let message = friendlyMessage(`HTTP ${res.status}`);
+      let body: unknown;
+      try {
+        body = await res.json();
+        message = formatApiError(body) ?? message;
+      } catch {
+        /* ignore parse error */
+      }
+      throw new ApiError(res.status, message, body);
     }
-    throw new ApiError(res.status, message, body);
+
+    // 204 No Content
+    if (res.status === 204) return undefined as T;
+
+    return await res.json();
+  } finally {
+    loader?.done();
   }
-
-  // 204 No Content
-  if (res.status === 204) return undefined as T;
-
-  return res.json();
 }
 
 /** DRF paginated list wrapper */

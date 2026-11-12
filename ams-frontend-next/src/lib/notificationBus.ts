@@ -8,12 +8,12 @@
  * through the typed parser, applies debouncing + per-entity coalescing +
  * id-level dedup, and pushes one clean event per "burst" to its subscribers.
  *
- * This is the layer the ProactiveAgentDispatcher consumes — it never reads
+ * This is the layer the ProactiveAgentDispatcher consumes, and it never reads
  * the raw feed directly. Splitting the bus from the dispatcher keeps the
  * "what to emit" logic separate from the "should we fire" logic, so each
  * can be tested independently.
  *
- * No backend transport here — the bus is transport-agnostic. Today the feed
+ * No backend transport here, and the bus is transport-agnostic. Today the feed
  * is polled (15s tick). Tomorrow when SSE/WebSocket lands, only the
  * NotificationsContext changes; the bus and everything above stays the same.
  */
@@ -52,7 +52,7 @@ class NotificationBus {
   // entity REPLACES the pending one (latest wins). When the debounce timer
   // fires we flush whatever is pending.
   private pending = new Map<string, TypedNotificationEvent>();
-  // Recent emits — used to coalesce bursts: if the same entity emitted in
+  // Recent emits, used to coalesce bursts: if the same entity emitted in
   // the last COALESCE_WINDOW_MS we skip the duplicate. Stored as a Map for
   // O(1) get; pruned lazily when checked.
   private recentEmits = new Map<string, EmitRecord>();
@@ -70,7 +70,7 @@ class NotificationBus {
 
   /**
    * Initialise the bus from the first observed feed. This MUST be called
-   * before processing any deltas — the initial snapshot is treated as
+   * before processing any deltas, since the initial snapshot is treated as
    * "already known" and is never re-emitted as a proactive event. Otherwise
    * every page refresh would replay the entire feed.
    */
@@ -86,7 +86,7 @@ class NotificationBus {
 
   /**
    * Feed the bus a fresh snapshot. Only items with id > highestSeenId are
-   * considered new — historical items in the snapshot are ignored. New
+   * considered new, and historical items in the snapshot are ignored. New
    * items get parsed, deduped by id, then queued through the per-entity
    * debouncer.
    */
@@ -121,7 +121,7 @@ class NotificationBus {
     this.flushTimer = setTimeout(() => this.flush(), DEBOUNCE_MS);
   }
 
-  /** Coalescing key — same entity within a window collapses to one emit. */
+  /** Coalescing key: same entity within a window collapses to one emit. */
   private entityKey(event: TypedNotificationEvent): string {
     const target = event.intentTarget;
     const formId = target?.form_id ?? "";
@@ -143,7 +143,7 @@ class NotificationBus {
       const key = this.entityKey(event);
       const recent = this.recentEmits.get(key);
       if (recent && now - recent.emittedAt < COALESCE_WINDOW_MS) {
-        // Skip — we already emitted for this entity recently. The newest
+        // Skip, since we already emitted for this entity recently. The newest
         // event still updates the recency timestamp so a long-running
         // burst doesn't sneak through after the window expires by accident.
         this.recentEmits.set(key, { emittedAt: recent.emittedAt, eventId: event.raw.id });
@@ -187,7 +187,7 @@ export const notificationBus = new NotificationBus();
 /**
  * React glue. Mount this once near the root (alongside NotificationsProvider)
  * to keep the bus in sync with the live feed. Consumers subscribe via
- * `notificationBus.subscribe(listener)` directly — the hook only handles
+ * `notificationBus.subscribe(listener)` directly, and the hook only handles
  * priming and incremental ingestion.
  */
 export function useNotificationBusIngest(feed: NotificationFeedItem[]) {

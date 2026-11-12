@@ -19,6 +19,7 @@ export interface StockEntryFormState {
   from_location: string;
   to_location: string;
   issued_to: string;
+  vendor: string;
   status: StockEntrySubmitStatus;
   purpose: string;
   remarks: string;
@@ -40,6 +41,7 @@ export interface StockEntryDisplayDirectionInput {
   to_location_name?: string | null;
   issued_to_name?: string | null;
   inspection_certificate_number?: string | null;
+  vendor_name?: string | null;
 }
 
 function optionalNumber(value: string) {
@@ -56,12 +58,13 @@ export function buildStockEntryPayload(form: StockEntryFormState) {
   const isIssue = form.entry_type === "ISSUE";
   const issueToPerson = isIssue && form.issue_target === "PERSON";
   const receiptFromPerson = !isIssue && form.return_source === "PERSON";
+  const receiptFromVendor = !isIssue && form.return_source === "LOCATION" && Boolean(form.vendor);
 
   return {
     entry_type: form.entry_type,
     from_location: isIssue
       ? optionalNumber(form.from_location)
-      : receiptFromPerson
+      : receiptFromPerson || receiptFromVendor
       ? null
       : optionalNumber(form.from_location),
     to_location: isIssue
@@ -70,6 +73,7 @@ export function buildStockEntryPayload(form: StockEntryFormState) {
         : optionalNumber(form.to_location)
       : optionalNumber(form.to_location),
     issued_to: issueToPerson || receiptFromPerson ? optionalNumber(form.issued_to) : null,
+    vendor: receiptFromVendor ? optionalNumber(form.vendor) : null,
     status: derivedStatus(form),
     purpose: form.purpose.trim() || null,
     remarks: form.remarks.trim() || null,
@@ -100,8 +104,8 @@ export function validateStockEntryForm(form: StockEntryFormState) {
     if (!form.to_location) errors.to_location = "Choose the receiving store.";
     if (form.return_source === "PERSON") {
       if (!form.issued_to) errors.issued_to = "Choose the employee returning stock.";
-    } else if (!form.from_location) {
-      errors.from_location = "Choose the non-store location returning stock.";
+    } else if (!form.vendor && !form.from_location) {
+      errors.vendor = "Choose the vendor or non-store location the stock is coming from.";
     }
   }
 
@@ -142,6 +146,13 @@ export function resolveStockEntrySourceRegisterValue(
 }
 
 export function getStockEntryDisplayDirection(entry: StockEntryDisplayDirectionInput) {
+  if (entry.entry_type === "RECEIPT" && entry.vendor_name) {
+    return {
+      source: `${entry.vendor_name} (vendor)`,
+      target: entry.to_location_name ?? "-",
+    };
+  }
+
   if (entry.entry_type === "RECEIPT" && entry.inspection_certificate_number) {
     return {
       source: `Inspection / ${entry.inspection_certificate_number}`,
@@ -157,7 +168,7 @@ export function getStockEntryDisplayDirection(entry: StockEntryDisplayDirectionI
   }
 
   return {
-    source: entry.from_location_name ?? "System / inspection",
+    source: entry.from_location_name ?? "Direct entry",
     target: entry.issued_to_name ?? entry.to_location_name ?? "-",
   };
 }

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { ListPagination } from "@/components/ListPagination";
 import { MultiSelectFilter, type MultiSelectFilterOption } from "@/components/MultiSelectFilter";
 import { ThemedSelect } from "@/components/ThemedSelect";
@@ -39,6 +40,7 @@ import {
   formatTrackingTypeLabel,
   isLowStock,
   itemStatusTone,
+  sanitizeUnit,
   toNumber,
   type ItemDistributionAllocation,
   type ItemDistributionDetailRow,
@@ -50,7 +52,7 @@ import {
   type ItemRecord,
   type ItemStatusTone,
 } from "@/lib/itemUi";
-import { relTime } from "@/lib/userUiShared";
+import { relTime, formatListSummary } from "@/lib/userUiShared";
 import workspaceStyles from "./ItemWorkspace.module.css";
 import { Button } from "@/components/ui/button";
 
@@ -664,13 +666,52 @@ export function ItemModal({
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  const parentCategories = useMemo(
+    () => categories.filter(category => category.parent_category == null && category.is_active),
+    [categories],
+  );
+  const leafCategoriesByParent = useMemo(() => {
+    const map = new Map<number, CategoryRecord[]>();
+    categories.forEach(category => {
+      if (category.parent_category != null && category.is_active) {
+        const bucket = map.get(category.parent_category) ?? [];
+        bucket.push(category);
+        map.set(category.parent_category, bucket);
+      }
+    });
+    return map;
+  }, [categories]);
+  const categoriesById = useMemo(() => {
+    const map = new Map<number, CategoryRecord>();
+    categories.forEach(category => map.set(category.id, category));
+    return map;
+  }, [categories]);
+
+  const initialParentId = (() => {
+    if (!item?.category) return "";
+    const sub = categoriesById.get(Number(item.category));
+    return sub?.parent_category != null ? String(sub.parent_category) : "";
+  })();
+  const [parentCategoryId, setParentCategoryId] = useState<string>(initialParentId);
+
   useEffect(() => {
     if (!open) return;
     setForm(itemForm(item));
     setTouched(new Set());
     setSubmitError(null);
     setSubmitting(false);
-  }, [item, open]);
+    if (item?.category) {
+      const sub = categoriesById.get(Number(item.category));
+      setParentCategoryId(sub?.parent_category != null ? String(sub.parent_category) : "");
+    } else {
+      setParentCategoryId("");
+    }
+  }, [item, open, categoriesById]);
+
+  const availableSubcategories = useMemo(() => {
+    if (!parentCategoryId) return [];
+    return leafCategoriesByParent.get(Number(parentCategoryId)) ?? [];
+  }, [parentCategoryId, leafCategoriesByParent]);
 
   useEffect(() => {
     if (!open) return;
@@ -689,12 +730,13 @@ export function ItemModal({
       ? "Low-stock threshold must be at least 1."
       : undefined,
     description: touched.has("description") && !form.description.trim()
-      ? "Description is required — describe the item so the catalog can be searched for it later."
+      ? "Description is required: describe the item so the catalog can be searched for it later."
       : undefined,
   };
   const issueCount = Object.values(errors).filter(Boolean).length;
-  const canSave = !submitting && categories.length > 0;
-  const categorySetupMessage = categories.length === 0
+  const anySubcategoryExists = leafCategoriesByParent.size > 0;
+  const canSave = !submitting && anySubcategoryExists;
+  const categorySetupMessage = !anySubcategoryExists
     ? "Create at least one active subcategory before adding an item here."
     : null;
   const set = (patch: Partial<ItemFormState>) => setForm(prev => ({ ...prev, ...patch }));
@@ -782,7 +824,7 @@ export function ItemModal({
       type: "string",
       required: true,
       description:
-        "Required. Describe the item — brand, model, generation, capacity, intended use. The copilot's catalog search compares this against future inspection items, so an empty/generic description makes the item invisible to inspection linking.",
+        "Required. Describe the item: brand, model, generation, capacity, intended use. The copilot's catalog search compares this against future inspection items, so an empty/generic description makes the item invisible to inspection linking.",
     },
     { name: "specifications", label: "Specifications", type: "string" },
   ], [categories]);
@@ -797,7 +839,7 @@ export function ItemModal({
       nextErrors.low_stock_threshold = "Low-stock threshold must be at least 1.";
     }
     if (!form.description.trim()) {
-      nextErrors.description = "Description is required — describe the item so the catalog can be searched for it later.";
+      nextErrors.description = "Description is required: describe the item so the catalog can be searched for it later.";
     }
     return {
       ok: Object.keys(nextErrors).length === 0,
@@ -856,7 +898,13 @@ export function ItemModal({
         </header>
 
         <div className="modal-body">
-          <div style={{ display: "grid", gap: 16, padding: "24px" }}>
+          <div className="stock-entry-help" style={{ margin: "20px 24px 0" }}>
+            <div className="stock-entry-help-title">About items</div>
+            <div className="stock-entry-help-body">
+              An item is a single catalogued product, e.g. &quot;Dell Latitude 5420 Laptop&quot;. Pick its parent category and sub-category (tracking type comes from the sub-category). Give it a clear name, a description that will be searchable later, and a low-stock threshold so the dashboard can warn when quantity runs low.
+            </div>
+          </div>
+          <div style={{ display: "grid", gap: 16, padding: "20px 24px 24px" }}>
             {submitError && (
               <div style={{ padding: "10px 14px", background: "var(--danger-weak)", border: "1px solid color-mix(in oklch, var(--danger) 30%, transparent)", borderRadius: "var(--radius)", color: "var(--danger)", fontSize: 13 }}>
                 {submitError}
@@ -876,17 +924,37 @@ export function ItemModal({
                 <Field label="Item code" hint="Leave blank to generate automatically." copilotField="code">
                   <input value={form.code} onChange={e => set({ code: e.target.value.toUpperCase() })} placeholder="Enter item code" />
                 </Field>
-                <Field label="Subcategory" required error={errors.category} span={2} hint={categories.length === 0 ? "You need at least one subcategory before creating items." : "Tracking type is inherited from the selected subcategory."} copilotField="category">
+                <Field label="Category" required hint={parentCategories.length === 0 ? "Create a parent category first." : "Pick the parent category, which narrows the subcategory list below."}>
+                  <ThemedSelect
+                    value={parentCategoryId}
+                    onChange={value => {
+                      setParentCategoryId(value);
+                      if (form.category) {
+                        const stillValid = (leafCategoriesByParent.get(Number(value)) ?? []).some(c => String(c.id) === form.category);
+                        if (!stillValid) set({ category: "" });
+                      }
+                    }}
+                    placeholder="Select category"
+                    ariaLabel="Category"
+                    disabled={parentCategories.length === 0}
+                    options={parentCategories.map(category => ({
+                      value: String(category.id),
+                      label: category.name,
+                      meta: category.code,
+                    }))}
+                  />
+                </Field>
+                <Field label="Subcategory" required error={errors.category} hint={!parentCategoryId ? "Select a category first." : availableSubcategories.length === 0 ? "This category has no subcategories yet - add one from Categories." : "Tracking type is inherited from the selected subcategory."} copilotField="category">
                   <ThemedSelect
                     value={form.category}
                     onChange={value => {
                       set({ category: value });
                       setTouched(prev => new Set(prev).add("category"));
                     }}
-                    placeholder="Select subcategory"
+                    placeholder={parentCategoryId ? "Select subcategory" : "Select category first"}
                     ariaLabel="Subcategory"
-                    disabled={categories.length === 0}
-                    options={categories.map(category => ({
+                    disabled={!parentCategoryId || availableSubcategories.length === 0}
+                    options={availableSubcategories.map(category => ({
                       value: String(category.id),
                       label: category.name,
                       meta: `${category.code} - ${formatItemLabel(category.resolved_tracking_type ?? category.tracking_type)}`,
@@ -975,76 +1043,106 @@ function ItemActions({
   onDelete: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [openUp, setOpenUp] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
+  const [mounted, setMounted] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Decide whether the menu should open upward (avoid bottom overflow)
-  const updateDirection = useCallback(() => {
-    const wrapper = ref.current;
-    const menu = menuRef.current;
-    if (!wrapper || !menu) return;
-    const wrapperRect = wrapper.getBoundingClientRect();
-    const card = wrapper.closest(".table-card");
-    const boundaryBottom = card instanceof HTMLElement ? card.getBoundingClientRect().bottom : window.innerHeight;
-    const spaceBelow = boundaryBottom - wrapperRect.bottom;
-    const menuHeight = menu.offsetHeight || menu.scrollHeight;
-    setOpenUp(spaceBelow < menuHeight + 8);
+  useEffect(() => { setMounted(true); }, []);
+
+  const computePosition = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return null;
+    const r = trigger.getBoundingClientRect();
+    const menuH = menuRef.current?.offsetHeight ?? 150;
+    const menuW = Math.max(menuRef.current?.offsetWidth ?? 0, 180);
+    const spaceBelow = window.innerHeight - r.bottom;
+    const top = spaceBelow < menuH + 12 ? Math.max(8, r.top - menuH - 6) : r.bottom + 6;
+    const left = Math.max(8, Math.min(window.innerWidth - menuW - 8, r.right - menuW));
+    return { top, left };
   }, []);
+
+  const openMenu = useCallback(() => {
+    const pos = computePosition();
+    if (pos) setMenuPos(pos);
+    setOpen(true);
+  }, [computePosition]);
 
   useEffect(() => {
     if (!open) return;
-    updateDirection();
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    const close = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (triggerRef.current?.contains(t) || menuRef.current?.contains(t)) return;
+      setOpen(false);
     };
-    document.addEventListener("mousedown", onDown);
-    window.addEventListener("resize", updateDirection);
+    const reposition = () => {
+      const pos = computePosition();
+      if (pos) setMenuPos(pos);
+    };
+    document.addEventListener("mousedown", close);
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
     return () => {
-      document.removeEventListener("mousedown", onDown);
-      window.removeEventListener("resize", updateDirection);
+      document.removeEventListener("mousedown", close);
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", reposition, true);
     };
-  }, [open, updateDirection]);
+  }, [open, computePosition]);
 
-  return (
-    <div className="row-action-more" ref={ref}>
-      <Button
-        type="button"
-        variant="ghost" size="xs"
-        title="Actions"
-        onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
-        disabled={pageBusy}
-        style={{ padding: "0 6px", letterSpacing: "0.06em", fontSize: 15, lineHeight: 1 }}
-      >
-        ⋮
-      </Button>
-      {open && (
-        <div
-          ref={menuRef}
-          className={openUp ? "row-menu row-menu-up" : "row-menu"}
-          onClick={e => e.stopPropagation()}
-        >
-          <Link
-            className="row-menu-item"
-            href={openHref}
-            title={openTitle}
-            onClick={() => setOpen(false)}
-          >
-            <Ic d="M9 18l6-6-6-6" size={13} /> {openLabel}
-          </Link>
-          {canEdit && (
-            <button type="button" className="row-menu-item" onClick={() => { setOpen(false); onEdit(); }} disabled={pageBusy}>
-              <Ic d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" size={13} /> Edit
-            </button>
-          )}
-          {canDelete && (
-            <button type="button" className="row-menu-item danger" onClick={() => { setOpen(false); onDelete(); }} disabled={pageBusy}>
-              <Ic d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0l1 12h6l1-12" size={13} /> {deleteBusy ? "Deleting…" : "Delete"}
-            </button>
-          )}
-        </div>
+  if (!canEdit && !canDelete) return <span className="muted-note mono">No actions</span>;
+
+  const menu = open && menuPos ? (
+    <div
+      ref={menuRef}
+      className="row-menu row-menu-fixed"
+      style={{ top: menuPos.top, left: menuPos.left }}
+      onClick={e => e.stopPropagation()}
+    >
+      <Link className="row-menu-item" href={openHref} title={openTitle} onClick={() => setOpen(false)}>
+        <Ic d="M9 18l6-6-6-6" size={13} /> {openLabel}
+      </Link>
+      {canEdit && (
+        <button type="button" className="row-menu-item" onClick={() => { setOpen(false); onEdit(); }} disabled={pageBusy}>
+          <Ic d="M12 20h9 M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" size={13} /> Edit
+        </button>
+      )}
+      {canDelete ? (
+        <button type="button" className="row-menu-item danger" onClick={() => { setOpen(false); onDelete(); }} disabled={pageBusy}>
+          <Ic d="M3 6h18 M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6 M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2 M10 11v6 M14 11v6" size={13} /> {deleteBusy ? "Deleting…" : "Delete"}
+        </button>
+      ) : (
+        <button type="button" className="row-menu-item" disabled title="Cannot delete: has dependent records">
+          <Ic d="M3 6h18 M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6 M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2 M10 11v6 M14 11v6" size={13} /> Delete
+        </button>
       )}
     </div>
+  ) : null;
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="row-dots-btn"
+        onMouseDown={e => { e.stopPropagation(); e.preventDefault(); }}
+        onClick={e => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (open) setOpen(false); else openMenu();
+        }}
+        disabled={pageBusy}
+        title="Actions"
+        aria-label="Actions"
+        aria-expanded={open}
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <circle cx="12" cy="5" r="2" fill="currentColor" />
+          <circle cx="12" cy="12" r="2" fill="currentColor" />
+          <circle cx="12" cy="19" r="2" fill="currentColor" />
+        </svg>
+      </button>
+      {mounted && menu ? createPortal(menu, document.body) : null}
+    </>
   );
 }
 
@@ -1116,12 +1214,12 @@ function ItemCard({
           </Button>
           {canEdit && (
             <Button type="button" variant="ghost" size="xs" className="row-action icon-only" onClick={event => { event.stopPropagation(); onEdit(); }} title="Edit item" disabled={pageBusy}>
-              <Ic d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" size={13} />
+              <Ic d="M12 20h9 M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" size={13} />
             </Button>
           )}
           {canDelete && (
             <Button type="button" variant="outline" size="xs" className="btn-danger-ghost row-action icon-only" onClick={event => { event.stopPropagation(); onDelete(); }} title={deleteBusy ? "Deleting item" : "Delete item"} disabled={pageBusy}>
-              <Ic d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0l1 12h6l1-12" size={13} />
+              <Ic d="M3 6h18 M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6 M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2 M10 11v6 M14 11v6" size={13} />
             </Button>
           )}
         </div>
@@ -1158,10 +1256,6 @@ export function ItemListView() {
     [searchParams],
   );
 
-  const leafCategories = useMemo(
-    () => categories.filter(category => category.parent_category !== null && category.is_active),
-    [categories],
-  );
 
   const loadItems = useCallback(async ({ showLoading = true }: { showLoading?: boolean } = {}) => {
     if (skipNextDefaultScopeReloadRef.current) {
@@ -1487,7 +1581,7 @@ export function ItemListView() {
         open={modalOpen}
         mode={editingItem ? "edit" : "create"}
         item={editingItem}
-        categories={leafCategories}
+        categories={categories}
         onClose={closeModal}
         onSave={handleSave}
       />
@@ -1546,7 +1640,7 @@ export function ItemListView() {
 
         <div className="filter-bar">
           <div className="filter-bar-left">
-            <div className="search-input">
+            <label className="search-input">
               <Ic d={<><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></>} size={14} />
               <input
                 placeholder="Search by item, code, category, unit, or specification..."
@@ -1554,8 +1648,8 @@ export function ItemListView() {
                 onChange={event => setSearch(event.target.value)}
                 aria-label="Search items"
               />
-              {search && <button type="button" className="clear-search" onClick={() => setSearch("")}>x</button>}
-            </div>
+              {search && <button type="button" className="clear-search" onClick={e => { e.preventDefault(); setSearch(""); }}>x</button>}
+            </label>
 
             <div className="filter-select-group">
               <div className="chip-filter-label">Tracking</div>
@@ -1642,13 +1736,13 @@ export function ItemListView() {
               <thead>
                 <tr>
                   <th style={{ width: "28%", textAlign: "left" }}>Item</th>
-                  <th style={{ width: "10%", textAlign: "left" }}>Tracking</th>
-                  <th style={{ width: "8%",  textAlign: "left" }}>Total</th>
-                  <th style={{ width: "8%",  textAlign: "left" }}>Available</th>
-                  <th style={{ width: "8%",  textAlign: "left" }}>In Transit</th>
-                  <th style={{ width: "9%",  textAlign: "left" }}>Locations</th>
-                  <th style={{ width: "11%", textAlign: "left" }}>Status</th>
-                  <th style={{ width: "12%", textAlign: "left" }}>Updated</th>
+                  <th style={{ width: "10%", textAlign: "center" }}>Tracking</th>
+                  <th style={{ width: "8%",  textAlign: "center" }}>Total</th>
+                  <th style={{ width: "8%",  textAlign: "center" }}>Available</th>
+                  <th style={{ width: "8%",  textAlign: "center" }}>In Transit</th>
+                  <th style={{ width: "9%",  textAlign: "center" }}>Locations</th>
+                  <th style={{ width: "11%", textAlign: "center" }}>Status</th>
+                  <th style={{ width: "12%", textAlign: "center" }}>Updated</th>
                   <th style={{ width: "6%", textAlign: "center", overflow: "hidden" }}>Actions</th>
                 </tr>
               </thead>
@@ -1683,7 +1777,7 @@ export function ItemListView() {
             </table>
           </div>
           <ListPagination
-            summary={filteredItems.length === 0 ? "Showing 0 items" : `Showing ${pageStart}-${pageEnd} of ${filteredItems.length} items`}
+            summary={formatListSummary(filteredItems.length, pageStart, pageEnd, "item", "items")}
             page={page}
             totalPages={totalPages}
             onPrev={() => setPage(current => Math.max(1, current - 1))}
@@ -1741,7 +1835,9 @@ function ItemListTableRow({
         </div>
       </td>
       <td className={workspaceStyles.itemsListTrackingCell}><span className={trackingChipClass(item.tracking_type)}>{formatTrackingTypeLabel(item.tracking_type, { compact: true })}</span></td>
-      <td className={`mono ${workspaceStyles.itemsListNumberCell}`}>{formatQuantity(item.total_quantity)} {item.acct_unit ?? "unit"}</td>
+      <td className={`mono ${workspaceStyles.itemsListNumberCell}`} title={`${formatQuantity(item.total_quantity)} ${sanitizeUnit(item.acct_unit)}`}>
+        {formatQuantity(item.total_quantity)}
+      </td>
       <td className={`mono ${workspaceStyles.itemsListNumberCell}`}>{formatQuantity(item.available_quantity)}</td>
       <td className={`mono ${workspaceStyles.itemsListNumberCell}`}>{formatQuantity(item.in_transit_quantity)}</td>
       <td className={workspaceStyles.itemsListLocationCell}><span className="chip chip-loc">{standaloneLocationCount} {standaloneLocationCount === 1 ? "location" : "locations"}</span></td>
@@ -1754,7 +1850,7 @@ function ItemListTableRow({
       <td className={`col-login ${workspaceStyles.itemsListUpdatedCell}`}>
         <ItemTimestampCell value={lastUpdated} fallback="Unknown" />
       </td>
-      <td className={`col-actions ${workspaceStyles.itemsListActionsCell}`}>
+      <td className={`col-actions ${workspaceStyles.itemsListActionsCell}`} onClick={e => e.stopPropagation()}>
         <ItemActions
           item={item}
           openHref={openHref}
@@ -1789,11 +1885,6 @@ export function ItemWorkspaceDetailView({ itemId }: { itemId: string }) {
     return parseItemsWorkspaceSearch(params);
   }, [itemId, searchParams]);
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(workspaceState.locationId);
-
-  const leafCategories = useMemo(
-    () => categories.filter(category => category.parent_category !== null && category.is_active),
-    [categories],
-  );
 
   const loadCategories = useCallback(async () => {
     if (!canManageItems) {
@@ -1885,7 +1976,7 @@ export function ItemWorkspaceDetailView({ itemId }: { itemId: string }) {
         open={modalOpen}
         mode={editingItem ? "edit" : "create"}
         item={editingItem}
-        categories={leafCategories}
+        categories={categories}
         onClose={closeModal}
         onSave={handleSave}
       />
@@ -2007,7 +2098,7 @@ function WorkspaceItemRow({
               title="Edit item"
               disabled={pageBusy}
             >
-              <Ic d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" size={13} />
+              <Ic d="M12 20h9 M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" size={13} />
             </Button>
           ) : null}
           {canDelete ? (
@@ -2021,7 +2112,7 @@ function WorkspaceItemRow({
               title={deleteBusy ? "Deleting item" : "Delete item"}
               disabled={pageBusy}
             >
-              <Ic d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0l1 12h6l1-12" size={13} />
+              <Ic d="M3 6h18 M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6 M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2 M10 11v6 M14 11v6" size={13} />
             </Button>
           ) : null}
         </span>
@@ -2173,7 +2264,7 @@ function WorkspaceLocatePalette({
 
   if (!open) return null;
 
-  const itemShortName = item.name.split("—")[0].trim();
+  const itemShortName = item.name.split(/ - | — /)[0].trim();
 
   return (
     <>
@@ -2449,7 +2540,7 @@ function WorkspaceSelectedItemPane({
               </Button>
               {canManageItems ? (
                 <Button type="button" variant="outline" size="sm" onClick={() => onEditItem(item)}>
-                  <Ic d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.1 2.1 0 113 3L12 15l-4 1 1-4 9.5-9.5Z" size={14} />
+                  <Ic d="M12 20h9 M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" size={14} />
                   Edit item
                 </Button>
               ) : null}
@@ -2479,7 +2570,7 @@ function WorkspaceSelectedItemPane({
                     <WorkspaceMetric
                       label="Idle / Stock"
                       value={<span className={lowFlag ? workspaceStyles.metricValueWarn : undefined}>{formatQuantity(availableQuantity)}</span>}
-                      sub={`in stores · min ${lowStockThreshold > 0 ? formatQuantity(lowStockThreshold) : "—"}`}
+                      sub={`in stores · min ${lowStockThreshold > 0 ? formatQuantity(lowStockThreshold) : "-"}`}
                     />
                     <WorkspaceMetric
                       label="In transit"
@@ -2522,7 +2613,7 @@ function WorkspaceSelectedItemPane({
                   />
                   <WorkspaceMetric
                     label="Min stock"
-                    value={lowStockThreshold > 0 ? <>{formatQuantity(lowStockThreshold)}<span className={workspaceStyles.metricUnit}>{unit}</span></> : "—"}
+                    value={lowStockThreshold > 0 ? <>{formatQuantity(lowStockThreshold)}<span className={workspaceStyles.metricUnit}>{unit}</span></> : "-"}
                   />
                   <WorkspaceMetric
                     label="Available"
@@ -2566,7 +2657,7 @@ function WorkspaceSelectedItemPane({
             <div className={workspaceStyles.infoKvs3} style={{ marginTop: 12 }}>
               <DetailKV label="Cap. status"       value={item.depreciation_summary?.capitalized ? "Capitalized" : "Not capitalized"} />
               <DetailKV label="Register entries"  value={<span className="mono">{formatQuantity(item.depreciation_summary?.asset_count ?? (item.depreciation_summary?.capitalized ? 1 : 0))}</span>} />
-              <DetailKV label="Latest FY"         value={item.depreciation_summary?.latest_posted_fiscal_year ? `${item.depreciation_summary.latest_posted_fiscal_year}-${String(item.depreciation_summary.latest_posted_fiscal_year + 1).slice(-2)}` : "—"} />
+              <DetailKV label="Latest FY"         value={item.depreciation_summary?.latest_posted_fiscal_year ? `${item.depreciation_summary.latest_posted_fiscal_year}-${String(item.depreciation_summary.latest_posted_fiscal_year + 1).slice(-2)}` : "-"} />
               <DetailKV label="Original cost"     value={formatMoneyValue(item.depreciation_summary?.original_cost)} />
               <DetailKV label="Accumulated dep."  value={formatMoneyValue(item.depreciation_summary?.accumulated_depreciation)} />
               <DetailKV label="Current WDV / NBV" value={formatMoneyValue(item.depreciation_summary?.current_wdv)} />
@@ -2748,7 +2839,7 @@ function WorkspaceDistributionTab({
       >
         <Ic d={<><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></>} size={14} />
         <span style={{ flex: 1, fontSize: 13, color: "var(--muted)" }}>
-          Locate within {item.name.split("—")[0].trim()} — search by department, store row, or employee…
+          Locate within {item.name.split(/ - | — /)[0].trim()}: search by department, store row, or employee…
         </span>
         <span className={workspaceStyles.locateBarKbd}>⌘K</span>
       </button>
@@ -2927,9 +3018,9 @@ function WorkspaceDistributionTab({
             <div className={workspaceStyles.slidePanelBody}>
               <div className={workspaceStyles.slidePanelMetrics}>
                 <WorkspaceMetric label="Total" value={<>{formatQuantity(panel.quantity)}<span className={workspaceStyles.metricUnit}>{item.acct_unit ?? "unit"}</span></>} />
-                <WorkspaceMetric label="Available" value={panel.availableQuantity == null ? "—" : <>{formatQuantity(panel.availableQuantity)}<span className={workspaceStyles.metricUnit}>{item.acct_unit ?? "unit"}</span></>} />
-                <WorkspaceMetric label="Allocated" value={panel.allocatedQuantity == null ? "—" : <>{formatQuantity(panel.allocatedQuantity)}<span className={workspaceStyles.metricUnit}>{item.acct_unit ?? "unit"}</span></>} />
-                <WorkspaceMetric label="In transit" value={panel.inTransitQuantity == null ? "—" : <>{formatQuantity(panel.inTransitQuantity)}<span className={workspaceStyles.metricUnit}>{item.acct_unit ?? "unit"}</span></>} />
+                <WorkspaceMetric label="Available" value={panel.availableQuantity == null ? "-" : <>{formatQuantity(panel.availableQuantity)}<span className={workspaceStyles.metricUnit}>{item.acct_unit ?? "unit"}</span></>} />
+                <WorkspaceMetric label="Allocated" value={panel.allocatedQuantity == null ? "-" : <>{formatQuantity(panel.allocatedQuantity)}<span className={workspaceStyles.metricUnit}>{item.acct_unit ?? "unit"}</span></>} />
+                <WorkspaceMetric label="In transit" value={panel.inTransitQuantity == null ? "-" : <>{formatQuantity(panel.inTransitQuantity)}<span className={workspaceStyles.metricUnit}>{item.acct_unit ?? "unit"}</span></>} />
               </div>
 
               {panelHolderRows.length ? (
@@ -3019,7 +3110,7 @@ function WorkspaceInfoTab({
           <DetailKV label="Category" value={item.category_display ?? "-"} />
           <DetailKV label="Tracking" value={formatItemLabel(String(item.tracking_type ?? ""))} />
           <DetailKV label="Accounting unit" value={item.acct_unit ?? "-"} />
-          <DetailKV label="Low-stock threshold" value={toNumber(item.low_stock_threshold) > 0 ? `${formatQuantity(item.low_stock_threshold)} ${item.acct_unit ?? "unit"}` : "—"} />
+          <DetailKV label="Low-stock threshold" value={toNumber(item.low_stock_threshold) > 0 ? `${formatQuantity(item.low_stock_threshold)} ${item.acct_unit ?? "unit"}` : "-"} />
           <DetailKV label="Standalone locations" value={<span className="mono">{units.length}</span>} />
         </div>
       </div>
@@ -3037,7 +3128,7 @@ function WorkspaceInfoTab({
           <div className={workspaceStyles.infoKvs3}>
             <DetailKV label="Cap. status"      value={item.depreciation_summary?.capitalized ? "Capitalized" : "Not capitalized"} />
             <DetailKV label="Register entries" value={<span className="mono">{formatQuantity(item.depreciation_summary?.asset_count ?? (item.depreciation_summary?.capitalized ? 1 : 0))}</span>} />
-            <DetailKV label="Latest posted FY" value={item.depreciation_summary?.latest_posted_fiscal_year ? `${item.depreciation_summary.latest_posted_fiscal_year}-${String(item.depreciation_summary.latest_posted_fiscal_year + 1).slice(-2)}` : "—"} />
+            <DetailKV label="Latest posted FY" value={item.depreciation_summary?.latest_posted_fiscal_year ? `${item.depreciation_summary.latest_posted_fiscal_year}-${String(item.depreciation_summary.latest_posted_fiscal_year + 1).slice(-2)}` : "-"} />
             <DetailKV label="Original cost"    value={formatMoneyValue(item.depreciation_summary?.original_cost)} />
             <DetailKV label="Accumulated dep." value={formatMoneyValue(item.depreciation_summary?.accumulated_depreciation)} />
             <DetailKV label="Current WDV / NBV" value={formatMoneyValue(item.depreciation_summary?.current_wdv)} />
@@ -3153,11 +3244,11 @@ export function WorkspaceInstancesTab({
         </div>
       ) : null}
       <div className={workspaceStyles.tabToolbar}>
-        <div className="search-input">
+        <label className="search-input">
           <Ic d={<><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></>} size={14} />
           <input placeholder="Search instance code, serial, location, assignee, or authority store..." value={search} onChange={event => setSearch(event.target.value)} />
-          {search ? <button type="button" className="clear-search" onClick={() => setSearch("")}>x</button> : null}
-        </div>
+          {search ? <button type="button" className="clear-search" onClick={e => { e.preventDefault(); setSearch(""); }}>x</button> : null}
+        </label>
         <div className="filter-select-wrap">
           <ThemedSelect
             value={statusFilter}
@@ -3291,11 +3382,11 @@ export function WorkspaceBatchesTab({
         </div>
       ) : null}
       <div className={workspaceStyles.tabToolbar}>
-        <div className="search-input">
+        <label className="search-input">
           <Ic d={<><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></>} size={14} />
           <input placeholder={`Search ${singularBatchLabel.toLowerCase()}, item code, or creator...`} value={search} onChange={event => setSearch(event.target.value)} />
-          {search ? <button type="button" className="clear-search" onClick={() => setSearch("")}>x</button> : null}
-        </div>
+          {search ? <button type="button" className="clear-search" onClick={e => { e.preventDefault(); setSearch(""); }}>x</button> : null}
+        </label>
         <div className="chip-filter">
           {[
             { key: "all", label: "All" },
@@ -3508,11 +3599,11 @@ export function ItemDistributionView({ itemId }: { itemId: string }) {
 
         <div className="filter-bar">
           <div className="filter-bar-left">
-            <div className="search-input">
+            <label className="search-input">
               <Ic d={<><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></>} size={14} />
               <input placeholder="Search standalone, store, employee, or non-store location..." value={search} onChange={e => setSearch(e.target.value)} />
-              {search && <button type="button" className="clear-search" onClick={() => setSearch("")}>x</button>}
-            </div>
+              {search && <button type="button" className="clear-search" onClick={e => { e.preventDefault(); setSearch(""); }}>x</button>}
+            </label>
             <div className="chip-filter-group">
               <div className="chip-filter-label">Focus</div>
               <div className="chip-filter">
@@ -3595,7 +3686,7 @@ export function ItemDistributionView({ itemId }: { itemId: string }) {
           )}
 
           <ListPagination
-            summary={filteredUnits.length === 0 ? "Showing 0 standalone units" : `Showing ${pageStart}-${pageEnd} of ${filteredUnits.length} standalone units`}
+            summary={formatListSummary(filteredUnits.length, pageStart, pageEnd, "standalone unit", "standalone units")}
             page={page}
             totalPages={totalPages}
             onPrev={() => setPage(current => Math.max(1, current - 1))}
@@ -3730,11 +3821,11 @@ export function ItemBatchDistributionView({ itemId, batchId }: { itemId: string;
 
         <div className="filter-bar">
           <div className="filter-bar-left">
-            <div className="search-input">
+            <label className="search-input">
               <Ic d={<><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></>} size={14} />
               <input placeholder="Search standalone, store, employee, or non-store location..." value={search} onChange={e => setSearch(e.target.value)} />
-              {search && <button type="button" className="clear-search" onClick={() => setSearch("")}>x</button>}
-            </div>
+              {search && <button type="button" className="clear-search" onClick={e => { e.preventDefault(); setSearch(""); }}>x</button>}
+            </label>
             <div className="chip-filter-group">
               <div className="chip-filter-label">Focus</div>
               <div className="chip-filter">
@@ -3823,7 +3914,7 @@ export function ItemBatchDistributionView({ itemId, batchId }: { itemId: string;
           )}
 
           <ListPagination
-            summary={filteredUnits.length === 0 ? "Showing 0 standalone units" : `Showing ${pageStart}-${pageEnd} of ${filteredUnits.length} standalone units`}
+            summary={formatListSummary(filteredUnits.length, pageStart, pageEnd, "standalone unit", "standalone units")}
             page={page}
             totalPages={totalPages}
             onPrev={() => setPage(current => Math.max(1, current - 1))}
@@ -3942,11 +4033,11 @@ export function ItemStandaloneDistributionView({ itemId, standaloneId }: { itemI
 
         <div className="filter-bar">
           <div className="filter-bar-left">
-            <div className="search-input">
+            <label className="search-input">
               <Ic d={<><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></>} size={14} />
               <input placeholder="Search store, lab, employee, batch, or stock entry..." value={search} onChange={e => setSearch(e.target.value)} />
-              {search && <button type="button" className="clear-search" onClick={() => setSearch("")}>x</button>}
-            </div>
+              {search && <button type="button" className="clear-search" onClick={e => { e.preventDefault(); setSearch(""); }}>x</button>}
+            </label>
             <div className="filter-select-group">
               <div className="chip-filter-label">Type</div>
               <div className="filter-select-wrap">
@@ -4049,7 +4140,7 @@ export function ItemStandaloneDistributionView({ itemId, standaloneId }: { itemI
           )}
 
           <ListPagination
-            summary={filteredDetails.length === 0 ? "Showing 0 detail rows" : `Showing ${pageStart}-${pageEnd} of ${filteredDetails.length} detail rows`}
+            summary={formatListSummary(filteredDetails.length, pageStart, pageEnd, "detail row", "detail rows")}
             page={page}
             totalPages={totalPages}
             onPrev={() => setPage(current => Math.max(1, current - 1))}
@@ -4184,11 +4275,11 @@ export function ItemInstancesView({ itemId }: { itemId: string }) {
           <>
             <div className="filter-bar">
               <div className="filter-bar-left">
-                <div className="search-input">
+                <label className="search-input">
                   <Ic d={<><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></>} size={14} />
                   <input placeholder="Search instance code, serial, location, assignee, or authority store..." value={search} onChange={e => setSearch(e.target.value)} />
-                  {search && <button type="button" className="clear-search" onClick={() => setSearch("")}>x</button>}
-                </div>
+                  {search && <button type="button" className="clear-search" onClick={e => { e.preventDefault(); setSearch(""); }}>x</button>}
+                </label>
                 <div className="filter-select-group">
                   <div className="chip-filter-label">Status</div>
                   <div className="filter-select-wrap">
@@ -4289,7 +4380,7 @@ export function ItemInstancesView({ itemId }: { itemId: string }) {
                 </div>
               )}
               <ListPagination
-                summary={filteredRecords.length === 0 ? "Showing 0 item instances" : `Showing ${pageStart}-${pageEnd} of ${filteredRecords.length} item instances`}
+                summary={formatListSummary(filteredRecords.length, pageStart, pageEnd, "item instance", "item instances")}
                 page={page}
                 totalPages={totalPages}
                 onPrev={() => setPage(current => Math.max(1, current - 1))}
@@ -4510,11 +4601,11 @@ export function ItemBatchesView({ itemId }: { itemId: string }) {
 
         <div className="filter-bar">
           <div className="filter-bar-left">
-            <div className="search-input">
+            <label className="search-input">
               <Ic d={<><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></>} size={14} />
               <input placeholder={`Search ${singularBatchLabel.toLowerCase()}, item code, or creator...`} value={search} onChange={e => setSearch(e.target.value)} />
-              {search && <button type="button" className="clear-search" onClick={() => setSearch("")}>x</button>}
-            </div>
+              {search && <button type="button" className="clear-search" onClick={e => { e.preventDefault(); setSearch(""); }}>x</button>}
+            </label>
             <div className="chip-filter-group">
               <div className="chip-filter-label">Status</div>
               <div className="chip-filter">
@@ -4614,7 +4705,7 @@ export function ItemBatchesView({ itemId }: { itemId: string }) {
             </div>
           )}
           <ListPagination
-            summary={filteredRecords.length === 0 ? `Showing 0 ${pluralBatchLabel.toLowerCase()}` : `Showing ${pageStart}-${pageEnd} of ${filteredRecords.length} ${pluralBatchLabel.toLowerCase()}`}
+            summary={formatListSummary(filteredRecords.length, pageStart, pageEnd, pluralBatchLabel.toLowerCase().replace(/s$/, ""), pluralBatchLabel.toLowerCase())}
             page={page}
             totalPages={totalPages}
             onPrev={() => setPage(current => Math.max(1, current - 1))}

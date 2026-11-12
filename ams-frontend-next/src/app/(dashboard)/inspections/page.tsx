@@ -13,6 +13,7 @@ import { ListPagination } from "@/components/ListPagination";
 import { MultiSelectFilter } from "@/components/MultiSelectFilter";
 import { ThemedSelect } from "@/components/ThemedSelect";
 import { Topbar } from "@/components/Topbar";
+import { formatListSummary } from "@/lib/userUiShared";
 import {
   InspectionIcon,
   InspectionModal,
@@ -263,7 +264,7 @@ function InspectionRow({
         </div>
       </td>
       <td>
-        <div className="user-name mono">{inspection.indent_no || "—"}</div>
+        <div className="user-name mono">{inspection.indent_no || "-"}</div>
       </td>
       <td style={{ textAlign: "center" }}>
         <div className="user-name mono">
@@ -271,7 +272,7 @@ function InspectionRow({
         </div>
       </td>
       <td>
-        <div className="user-name">{inspection.contractor_name || "—"}</div>
+        <div className="user-name">{inspection.contractor_name || "-"}</div>
       </td>
       <td className="inspection-table-location-cell">
         <div className="inspection-table-centered-cell">
@@ -798,7 +799,7 @@ export default function InspectionsPage() {
 
         <div className="filter-bar">
           <div className="filter-bar-left">
-            <div className="search-input">
+            <label className="search-input">
               <InspectionIcon
                 d={
                   <>
@@ -812,17 +813,19 @@ export default function InspectionsPage() {
                 placeholder="Search by contract, indent, contractor or location…"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
+                onClick={e => { if (!e.currentTarget.value) e.currentTarget.setSelectionRange(0, 0); }}
+                onFocus={e => { if (!e.currentTarget.value) e.currentTarget.setSelectionRange(0, 0); }}
               />
               {search && (
                 <button
                   type="button"
                   className="clear-search"
-                  onClick={() => setSearch("")}
+                  onClick={e => { e.preventDefault(); setSearch(""); }}
                 >
                   ×
                 </button>
               )}
-            </div>
+            </label>
             <div className="filter-select-group">
               <div className="chip-filter-label">Stage</div>
               <div className="filter-select-wrap">
@@ -966,11 +969,7 @@ export default function InspectionsPage() {
             </table>
           </div>
           <ListPagination
-            summary={
-              filtered.length === 0
-                ? "Showing 0 inspections"
-                : `Showing ${pageStart}-${pageEnd} of ${filtered.length} inspections`
-            }
+            summary={formatListSummary(filtered.length, pageStart, pageEnd, "inspection", "inspections")}
             page={page}
             totalPages={totalPages}
             onPrev={() => setPage((current) => Math.max(1, current - 1))}

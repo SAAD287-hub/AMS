@@ -629,18 +629,26 @@ class StockEntryViewSet(ScopedViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def cancel(self, request, pk=None):
         from django.db import transaction
-        
+        from ..services.receipt_reversal import can_reverse_receipt, reversal_blockers_for_receipt
+
         instance = self.get_object()
         reason = request.data.get('reason')
-        
+
         if not reason:
             return Response({'detail': 'Cancellation reason is required.'}, status=400)
-        
-        if instance.status == 'COMPLETED':
-            return Response({'detail': 'Completed entries cannot be cancelled.'}, status=400)
-            
+
         if instance.status == 'CANCELLED':
             return Response({'detail': 'Entry is already cancelled.'}, status=400)
+
+        is_originating_receipt = instance.entry_type == 'RECEIPT' and instance.from_location_id is None
+
+        if instance.status == 'COMPLETED' and not is_originating_receipt:
+            return Response({'detail': 'Completed entries cannot be cancelled. Use correction or reversal instead.'}, status=400)
+
+        if instance.status == 'COMPLETED' and is_originating_receipt:
+            blockers = reversal_blockers_for_receipt(instance)
+            if blockers:
+                return Response({'detail': 'This receipt cannot be reversed.', 'blockers': blockers}, status=400)
 
         with transaction.atomic():
             instance.status = 'CANCELLED'
@@ -648,7 +656,7 @@ class StockEntryViewSet(ScopedViewSetMixin, viewsets.ModelViewSet):
             instance.cancelled_by = request.user
             instance.cancelled_at = timezone.now()
             instance.save()
-        
+
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 

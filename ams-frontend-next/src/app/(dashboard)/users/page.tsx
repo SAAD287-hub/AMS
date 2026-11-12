@@ -7,7 +7,8 @@ import { Topbar } from "@/components/Topbar";
 import { AddUserModal } from "@/components/AddUserModal";
 import { ListPagination } from "@/components/ListPagination";
 import { ThemedSelect } from "@/components/ThemedSelect";
-import { tierMeta, relTime, type User } from "@/lib/userUiShared";
+import { DropdownPortal } from "@/components/DropdownPortal";
+import { tierMeta, relTime, formatListSummary, type User } from "@/lib/userUiShared";
 import { useClientPagination } from "@/lib/listPagination";
 import { shouldLoadUserAssignmentSelectors } from "@/lib/userAssignmentSelectors";
 import { API_BASE, apiFetch, type Page } from "@/lib/api";
@@ -31,13 +32,52 @@ function mediaUrl(value: string | null | undefined) {
   return value.startsWith("http") ? value : `${API_BASE}${value}`;
 }
 
-function Avatar({ name, avatarUrl, tone = 0, size = 32 }: { name: string; avatarUrl?: string | null; tone?: number; size?: number }) {
+// Palette of per-user avatar colors. Each entry is a CSS color expression that
+// auto-adapts to light/dark theme via globals.css variables (where applicable).
+// Order matters — it defines the deterministic mapping from username hash → color.
+const AVATAR_PALETTE: string[] = [
+  "var(--tier-0)",                 // violet
+  "var(--tier-1)",                 // teal
+  "var(--tier-3)",                 // warm amber
+  "var(--success)",                // green
+  "var(--warn)",                   // orange
+  "var(--danger)",                 // red
+  "var(--tracking-individual)",    // indigo
+  "oklch(0.6 0.18 340)",           // magenta/pink
+  "oklch(0.6 0.16 220)",           // sky blue
+  "oklch(0.55 0.14 140)",          // sage/olive
+];
+
+function avatarColorIndex(seed: string): number {
+  if (!seed) return 0;
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) {
+    h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  }
+  return h % AVATAR_PALETTE.length;
+}
+
+function Avatar({
+  name,
+  avatarUrl,
+  tone,
+  colorSeed,
+  size = 32,
+}: {
+  name: string;
+  avatarUrl?: string | null;
+  tone?: number;
+  colorSeed?: string;
+  size?: number;
+}) {
   const initials = name.split(" ").map(n => n[0]).slice(0, 2).join("").toUpperCase();
-  const bg = tone === 0
-    ? "linear-gradient(135deg, color-mix(in oklch, var(--primary) 82%, white), var(--primary))"
-    : tone === 1
-    ? "linear-gradient(135deg, #3b4052, #0e1116)"
-    : "linear-gradient(135deg, #8a7b60, #4d442f)";
+  // tone is a legacy / explicit override. When undefined we auto-derive a stable
+  // color from the provided seed (or the display name) so every user gets a
+  // distinct, consistent avatar color.
+  const seed = (colorSeed || name || "").trim();
+  const idx = tone === undefined ? avatarColorIndex(seed) : ((tone % AVATAR_PALETTE.length) + AVATAR_PALETTE.length) % AVATAR_PALETTE.length;
+  const c = AVATAR_PALETTE[idx];
+  const bg = `linear-gradient(135deg, color-mix(in oklch, ${c} 82%, white), ${c})`;
   const href = mediaUrl(avatarUrl);
   return (
     <div className="avatar" style={{ width: size, height: size, background: bg, fontSize: size <= 30 ? 11 : 12 }}>
@@ -69,6 +109,14 @@ function TimestampCell({ value, fallback }: { value: string | null | undefined; 
   );
 }
 
+function cleanLocationLabel(raw: string) {
+  // Strip trailing " (CODE-123-FOO)" suffix, then keep only the leaf
+  // segment after the final " - ". Full label stays available on hover.
+  const noCode = raw.replace(/\s*\([A-Z0-9][A-Z0-9-]*\)\s*$/, "").trim();
+  const parts = noCode.split(/\s+-\s+/);
+  return { leaf: parts[parts.length - 1], parent: parts.length > 1 ? parts.slice(0, -1).join(" - ") : null };
+}
+
 function LocationChips({ locs, power_level, max = 2 }: { locs: string[]; power_level: number; max?: number }) {
   if (power_level === 0) return <span className="muted-note mono">ALL UNIVERSITY</span>;
   if (!locs || locs.length === 0) return <span className="muted-note">Personal scope</span>;
@@ -76,8 +124,16 @@ function LocationChips({ locs, power_level, max = 2 }: { locs: string[]; power_l
   const rest = locs.length - max;
   return (
     <div className="loc-chips">
-      {shown.map((l) => <span key={l} className="chip chip-loc">{l}</span>)}
-      {rest > 0 && <span className="loc-more">+{rest}</span>}
+      {shown.map((l) => {
+        const { leaf, parent } = cleanLocationLabel(l);
+        return (
+          <span key={l} className="chip chip-loc" title={parent ? `${parent} › ${leaf}` : leaf}>
+            {parent && <span className="chip-loc-parent">{parent} › </span>}
+            <span className="chip-loc-leaf">{leaf}</span>
+          </span>
+        );
+      })}
+      {rest > 0 && <span className="loc-more" title={locs.slice(max).join(", ")}>+{rest}</span>}
     </div>
   );
 }
@@ -193,61 +249,90 @@ function RowActions({
     };
   }, [open, updateMenuDirection]);
 
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && moreRef.current?.contains(target)) return;
+      if (target instanceof Node && menuRef.current?.contains(target)) return;
+      closeMenu();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeMenu();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open, closeMenu]);
+
   if (!hasVisibleActions) {
     return <span className="muted-note mono">No actions</span>;
   }
 
   return (
     <div className="row-actions">
-      {canRenderEdit && (
+      <div className="row-action-more" ref={moreRef}>
         <Button
           type="button"
-          variant="ghost" size="xs" className="row-action"
-          onClick={onEdit}
-          title={editTitle}
-          disabled={editDisabled}
-          style={editDisabled ? busyActionStyle : undefined}
+          variant="ghost"
+          size="xs"
+          onClick={() => setOpen(prev => !prev)}
+          disabled={supportedLocked}
+          style={supportedLocked ? busyActionStyle : undefined}
+          title="Actions"
+          aria-haspopup="menu"
+          aria-expanded={open}
         >
-          <Ic d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" size={13} />
-          <span className="ra-label">Edit</span>
+          <Ic d={<><circle cx="12" cy="5" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="19" r="1" fill="currentColor"/></>} size={14} />
         </Button>
-      )}
-      {canRenderToggle && (
-        <Button
-          type="button"
-          variant="ghost" size="xs" className="row-action"
-          onClick={onToggleActive}
-          title={toggleTitle}
-          disabled={toggleDisabled}
-          style={toggleDisabled ? busyActionStyle : undefined}
-        >
-          <Ic d="M18.36 6.64A9 9 0 015.64 19.36M23 12a11 11 0 11-22 0 11 11 0 0122 0z" size={13} />
-          <span className="ra-label">{toggleBusy ? (active ? "Disabling…" : "Enabling…") : (active ? "Disable" : "Enable")}</span>
-        </Button>
-      )}
-      {canRenderDelete && (
-        <div className="row-action-more" ref={moreRef}>
-          <Button type="button" variant="ghost" size="xs" onClick={() => setOpen(prev => !prev)} disabled={supportedLocked} style={supportedLocked ? busyActionStyle : undefined}>
-            <Ic d={<><circle cx="12" cy="5" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="19" r="1" fill="currentColor"/></>} size={14} />
-          </Button>
-          {open && (
-            <div ref={menuRef} className={"row-menu" + (openUp ? " row-menu-up" : "")}>
+        {open && (
+          <DropdownPortal anchorRef={moreRef} className="row-menu" minWidth={200}>
+            <div ref={menuRef} role="menu">
+              {canRenderEdit && (
+                <button
+                  type="button"
+                  className="row-menu-item"
+                  onClick={() => { closeMenu(); onEdit?.(); }}
+                  disabled={editDisabled}
+                  title={editTitle}
+                  style={editDisabled ? busyActionStyle : undefined}
+                >
+                  Edit
+                </button>
+              )}
+              {canRenderToggle && (
+                <button
+                  type="button"
+                  className="row-menu-item"
+                  onClick={() => { closeMenu(); onToggleActive(); }}
+                  disabled={toggleDisabled}
+                  title={toggleTitle}
+                  style={toggleDisabled ? busyActionStyle : undefined}
+                >
+                  {toggleBusy ? (active ? "Disabling…" : "Enabling…") : (active ? "Disable" : "Enable")}
+                </button>
+              )}
               <button type="button" className="row-menu-item" disabled style={unavailableActionStyle} title="View profile unavailable in this build">View profile</button>
               <button type="button" className="row-menu-item" disabled style={unavailableActionStyle} title="Audit history unavailable in this build">Audit history</button>
-              <button
-                type="button"
-                className="row-menu-item danger"
-                onClick={() => { closeMenu(); onDelete(); }}
-                disabled={deleteDisabled}
-                title={deleteTitle}
-                style={deleteDisabled ? busyActionStyle : undefined}
-              >
-                {deleteBusy ? "Deleting…" : "Delete user"}
-              </button>
+              {canRenderDelete && (
+                <button
+                  type="button"
+                  className="row-menu-item danger"
+                  onClick={() => { closeMenu(); onDelete(); }}
+                  disabled={deleteDisabled}
+                  title={deleteTitle}
+                  style={deleteDisabled ? busyActionStyle : undefined}
+                >
+                  {deleteBusy ? "Deleting…" : "Delete user"}
+                </button>
+              )}
             </div>
-          )}
-        </div>
-      )}
+          </DropdownPortal>
+        )}
+      </div>
     </div>
   );
 }
@@ -557,15 +642,17 @@ export default function UsersPage() {
         <div className="filter-bar">
           <div className="filter-bar-left">
             {/* Search */}
-            <div className="search-input">
+            <label className="search-input">
               <Ic d={<><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></>} size={14} />
               <input
                 placeholder="Search by name, username, employee ID or email…"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
+                onClick={e => { if (!e.currentTarget.value) e.currentTarget.setSelectionRange(0, 0); }}
+                onFocus={e => { if (!e.currentTarget.value) e.currentTarget.setSelectionRange(0, 0); }}
               />
-              {search && <button type="button" className="clear-search" onClick={() => setSearch("")}>×</button>}
-            </div>
+              {search && <button type="button" className="clear-search" onClick={e => { e.preventDefault(); setSearch(""); }}>×</button>}
+            </label>
 
             {/* Tier filter */}
             <div className="filter-select-group">
@@ -651,7 +738,17 @@ export default function UsersPage() {
               </div>
             </div>
             <div className="h-scroll">
-              <table className="data-table">
+              <table className="data-table users-table">
+                <colgroup>
+                  <col style={{ width: "20%" }} />
+                  <col style={{ width: "9%" }} />
+                  <col style={{ width: "9%" }} />
+                  <col style={{ width: "22%" }} />
+                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "9%" }} />
+                  <col style={{ width: "8%" }} />
+                  <col style={{ width: "9%" }} />
+                </colgroup>
                 <thead>
                   <tr>
                     <th>User</th>
@@ -683,7 +780,7 @@ export default function UsersPage() {
               </table>
             </div>
             <ListPagination
-              summary={filtered.length === 0 ? "Showing 0 users" : `Showing ${pageStart}-${pageEnd} of ${filtered.length} users`}
+              summary={formatListSummary(filtered.length, pageStart, pageEnd, "user", "users")}
               page={page}
               totalPages={totalPages}
               onPrev={() => setPage(current => Math.max(1, current - 1))}
@@ -710,7 +807,7 @@ export default function UsersPage() {
         )}
         {mode === "grid" && filtered.length > 0 ? (
           <ListPagination
-            summary={`Showing ${pageStart}-${pageEnd} of ${filtered.length} users`}
+            summary={formatListSummary(filtered.length, pageStart, pageEnd, "user", "users")}
             page={page}
             totalPages={totalPages}
             onPrev={() => setPage(current => Math.max(1, current - 1))}
@@ -750,19 +847,26 @@ function UserRow({
     <tr>
       <td className="col-user">
         <div className="user-cell">
-          <Avatar name={`${u.first_name} ${u.last_name}`} avatarUrl={u.avatar_url} tone={u.power_level === 0 ? 0 : u.power_level === 1 ? 0 : 2} />
+          <Avatar name={`${u.first_name} ${u.last_name}`} avatarUrl={u.avatar_url} colorSeed={u.username} />
           <div>
             <div className="user-name">{u.first_name} {u.last_name}</div>
             <div className="user-username mono">@{u.username}</div>
           </div>
         </div>
       </td>
-      <td className="col-eid mono">{u.employee_id}</td>
-      <td><TimestampCell value={u.created_at} fallback="—" /></td>
-      <td className="users-location-cell"><LocationChips locs={u.assigned_locations_display} power_level={u.power_level} max={1} /></td>
+      <td className="col-eid mono">{u.employee_id ? u.employee_id : <span className="muted-note">—</span>}</td>
+      <td><TimestampCell value={u.created_at} fallback="-" /></td>
+      <td className="users-location-cell"><LocationChips locs={u.assigned_locations_display} power_level={u.power_level} max={2} /></td>
       <td>
         <div className="group-cell">
-          {(u.groups_display || []).slice(0, 2).map((g) => <span key={g} className="chip">{g}</span>)}
+          {u.groups_display && u.groups_display.length > 0 ? (
+            <>
+              {u.groups_display.slice(0, 2).map((g) => <span key={g} className="chip" title={g}>{g}</span>)}
+              {u.groups_display.length > 2 && <span className="loc-more" title={u.groups_display.slice(2).join(", ")}>+{u.groups_display.length - 2}</span>}
+            </>
+          ) : (
+            <span className="muted-note">—</span>
+          )}
         </div>
       </td>
       <td className="col-login">
@@ -812,7 +916,7 @@ function UserCard({
   return (
     <div className="user-card">
       <div className="user-card-head">
-        <Avatar name={`${u.first_name} ${u.last_name}`} avatarUrl={u.avatar_url} size={44} tone={u.power_level === 0 ? 0 : u.power_level === 1 ? 0 : 2} />
+        <Avatar name={`${u.first_name} ${u.last_name}`} avatarUrl={u.avatar_url} size={44} colorSeed={u.username} />
         <StatusPill active={u.is_active} />
       </div>
       <div className="user-card-name">{u.first_name} {u.last_name}</div>
@@ -820,7 +924,7 @@ function UserCard({
       <div className="user-card-eid mono">{u.employee_id}</div>
       <div className="user-card-section">
         <div className="eyebrow">Created At</div>
-        <TimestampCell value={u.created_at} fallback="—" />
+        <TimestampCell value={u.created_at} fallback="-" />
       </div>
       <div className="user-card-section">
         <div className="eyebrow">Locations</div>

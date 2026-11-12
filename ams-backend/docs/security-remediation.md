@@ -1,4 +1,4 @@
-# Audit remediation — 30 October 2026
+# Audit remediation - 30 October 2026
 
 All S1–S7 and P1–P5 findings from the local audit have implementation changes.
 The original audit is a point-in-time record; this document describes the fixes.

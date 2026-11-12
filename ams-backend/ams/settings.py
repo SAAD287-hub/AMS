@@ -249,7 +249,7 @@ ITEM_SEARCH_HYBRID_ENABLED = config(
     'ITEM_SEARCH_HYBRID_ENABLED', default=False, cast=bool,
 )
 
-# Embedding provider — OpenAI-compatible HTTP API. Wire to OpenRouter for
+# Embedding provider: OpenAI-compatible HTTP API. Wire to OpenRouter for
 # testing by pointing EMBEDDING_BASE_URL at OpenRouter and using one of
 # their hosted embedding models.
 EMBEDDING_BASE_URL = config(
@@ -264,7 +264,7 @@ EMBEDDING_TIMEOUT_SECONDS = config(
     'EMBEDDING_TIMEOUT_SECONDS', default=15, cast=int,
 )
 
-# RRF (Reciprocal Rank Fusion) constant — Cormack et al. recommend 60.
+# RRF (Reciprocal Rank Fusion) constant: Cormack et al. recommend 60.
 ITEM_SEARCH_RRF_K = config('ITEM_SEARCH_RRF_K', default=60, cast=int)
 
 # Per-stage candidate budgets before fusion.
@@ -276,7 +276,7 @@ ITEM_SEARCH_SEMANTIC_TOP_N = config(
 # Minimum cosine similarity for SEMANTIC-ONLY candidates. pgvector ranks every
 # embedded item by distance, so without a floor the result tail is just
 # "nearest available" noise rather than actual matches. Hits that also matched
-# BM25 are kept regardless — lexical agreement is evidence enough. 0 disables.
+# BM25 are kept regardless, since lexical agreement is evidence enough. 0 disables.
 ITEM_SEARCH_MIN_SEMANTIC_SCORE = config(
     'ITEM_SEARCH_MIN_SEMANTIC_SCORE', default=0.35, cast=float,
 )

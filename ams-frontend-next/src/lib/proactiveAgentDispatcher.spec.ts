@@ -177,7 +177,7 @@ describe("decideProactiveAction", () => {
   });
 });
 
-describe("decideProactiveAction — self-action suppression", () => {
+describe("decideProactiveAction - self-action suppression", () => {
   it("drops events whose actor matches the current user", () => {
     const decision = decideProactiveAction({
       event: makeActionableEvent({ actor_id: 42 }),

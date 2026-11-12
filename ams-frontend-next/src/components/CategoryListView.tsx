@@ -37,7 +37,7 @@ interface CategoryListViewProps {
   parentId?: string;
 }
 
-function formatLabel(value: string | null | undefined, fallback = "—") {
+function formatLabel(value: string | null | undefined, fallback = "-") {
   if (!value) return fallback;
   return value.replace(/[_-]+/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
@@ -51,25 +51,14 @@ function StatusPill({ active }: { active: boolean }) {
   );
 }
 
-function DensityToggle({ density, setDensity }: { density: "compact" | "balanced" | "comfortable"; setDensity: (density: "compact" | "balanced" | "comfortable") => void }) {
-  return (
-    <div className="seg">
-      {(["compact", "balanced", "comfortable"] as const).map(option => (
-        <button type="button" key={option} className={"seg-btn" + (density === option ? " active" : "")} onClick={() => setDensity(option)}>
-          {option.charAt(0).toUpperCase() + option.slice(1)}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function compactList(items: string[], max = 1) {
-  const shown = items.slice(0, max);
-  return { shown, rest: items.length - shown.length };
-}
-
 function deleteBlockedMessage(blockers: string[] | undefined, fallback: string) {
   return blockers && blockers.length > 0 ? blockers.join(" ") : fallback;
+}
+
+function canDeleteExcludingSubcategories(category: CategoryRecord) {
+  const blockers = category.delete_blockers ?? [];
+  const otherBlockers = blockers.filter(b => !b.toLowerCase().includes("subcategor"));
+  return otherBlockers.length === 0;
 }
 
 function trackingChipClass(trackingType: string | null | undefined) {
@@ -77,17 +66,6 @@ function trackingChipClass(trackingType: string | null | undefined) {
   if (trackingType === "INDIVIDUAL") return "chip chip-tracking chip-tracking-individual";
   if (trackingType === "QUANTITY") return "chip chip-tracking chip-tracking-quantity";
   return "chip chip-tracking chip-tracking-perishable";
-}
-
-function SubcategorySummary({ names }: { names: string[] }) {
-  if (names.length === 0) return <span className="muted-note">No subcategories</span>;
-  const { shown, rest } = compactList(names, 1);
-  return (
-    <div className="group-cell">
-      {shown.map(name => <span key={name} className="chip">{name}</span>)}
-      {rest > 0 ? <span className="loc-more">+{rest}</span> : null}
-    </div>
-  );
 }
 
 function CategoryActions() {
@@ -101,24 +79,37 @@ function RowActions({ onEdit, onDelete, canEdit, canDelete, disabled = false, de
   if (!canRenderEdit && !canRenderDelete) return <CategoryActions />;
 
   return (
-    <div className="row-actions">
-      {canRenderEdit && (
+    <div className="row-actions row-actions-fixed">
+      {canRenderEdit ? (
         <Button type="button" variant="ghost" size="xs" className="row-action" onClick={event => { event.stopPropagation(); onEdit?.(); }} title="Edit category" disabled={disabled}>
-          <Ic d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" size={13} />
+          <Ic d="M12 20h9 M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" size={13} />
           <span className="ra-label">Edit</span>
         </Button>
-      )}
-      {canRenderDelete && (
+      ) : <span className="row-action-slot" aria-hidden="true" />}
+      {canRenderDelete ? (
         <Button type="button" variant="outline" size="xs" className="btn-danger-ghost row-action" onClick={event => { event.stopPropagation(); onDelete?.(); }} title="Delete category" disabled={disabled}>
-          <Ic d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0l1 12h6l1-12" size={13} />
+          <Ic d="M3 6h18 M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6 M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2 M10 11v6 M14 11v6" size={13} />
           <span className="ra-label">{deleteBusy ? "Deleting…" : "Delete"}</span>
+        </Button>
+      ) : (
+        <Button
+          type="button"
+          variant="outline"
+          size="xs"
+          className="btn-danger-ghost row-action"
+          disabled
+          title="Cannot delete: has subcategories or dependent records"
+          onClick={event => event.stopPropagation()}
+        >
+          <Ic d="M3 6h18 M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6 M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2 M10 11v6 M14 11v6" size={13} />
+          <span className="ra-label">Delete</span>
         </Button>
       )}
     </div>
   );
 }
 
-function CategoryRow({ category, isChildrenView, childCount, childNames, trackingSummary, canEdit, canDelete, onOpen, onEdit, onDelete, disabled = false, deleteBusy = false }: { category: CategoryRecord; isChildrenView: boolean; childCount: number; childNames: string[]; trackingSummary: string; canEdit: boolean; canDelete: boolean; onOpen?: () => void; onEdit?: () => void; onDelete?: () => void; disabled?: boolean; deleteBusy?: boolean }) {
+function CategoryRow({ category, isChildrenView, childCount, childNames, trackingSummary, canEdit, canDelete, onOpen, onEdit, onDelete, onAddSubcategory, disabled = false, deleteBusy = false }: { category: CategoryRecord; isChildrenView: boolean; childCount: number; childNames: string[]; trackingSummary: string; canEdit: boolean; canDelete: boolean; onOpen?: () => void; onEdit?: () => void; onDelete?: () => void; onAddSubcategory?: () => void; disabled?: boolean; deleteBusy?: boolean }) {
   const resolvedType = category.resolved_category_type ?? category.category_type;
   const resolvedTracking = category.resolved_tracking_type ?? category.tracking_type;
 
@@ -147,10 +138,11 @@ function CategoryRow({ category, isChildrenView, childCount, childNames, trackin
           </div>
         </td>
       ) : (
-        <>
-          <td><SubcategorySummary names={childNames} /></td>
-          <td><span className="chip">{trackingSummary}</span></td>
-        </>
+        <td>
+          {trackingSummary && trackingSummary !== "No subcategories"
+            ? <span className="chip">{trackingSummary}</span>
+            : <span className="muted-note">-</span>}
+        </td>
       )}
       {isChildrenView && <td>{category.parent_category_display ?? "Root category"}</td>}
       <td><StatusPill active={category.is_active} /></td>
@@ -159,6 +151,24 @@ function CategoryRow({ category, isChildrenView, childCount, childNames, trackin
           <div>{category.updated_at ? relTime(category.updated_at) : "Unknown"}</div>
         </div>
       </td>
+      {!isChildrenView && (
+        <td className="col-add-sub">
+          {onAddSubcategory ? (
+            <button
+              type="button"
+              className="subcategory-add-btn"
+              onClick={e => { e.stopPropagation(); if (!disabled) onAddSubcategory(); }}
+              disabled={disabled}
+              title="Add subcategory"
+            >
+              <Ic d="M12 5v14M5 12h14" size={11} />
+              <span>Add</span>
+            </button>
+          ) : (
+            <span className="muted-note">-</span>
+          )}
+        </td>
+      )}
       <td className="col-actions">
         <RowActions canEdit={canEdit} canDelete={canDelete} onEdit={onEdit} onDelete={onDelete} disabled={disabled} deleteBusy={deleteBusy} />
       </td>
@@ -166,37 +176,83 @@ function CategoryRow({ category, isChildrenView, childCount, childNames, trackin
   );
 }
 
-function CategoryCard({ category, childCount, childNames, trackingSummary, canEdit, canDelete, pageBusy, deleteBusy, onOpen, onEdit, onDelete }: { category: CategoryRecord; childCount: number; childNames: string[]; trackingSummary: string; canEdit: boolean; canDelete: boolean; pageBusy: boolean; deleteBusy: boolean; onOpen?: () => void; onEdit: () => void; onDelete: () => void }) {
+function CategoryCard({ category, childCount, childNames, trackingSummary, canEdit, canDelete, pageBusy, deleteBusy, onOpen, onEdit, onDelete, onAddSubcategory }: { category: CategoryRecord; childCount: number; childNames: string[]; trackingSummary: string; canEdit: boolean; canDelete: boolean; pageBusy: boolean; deleteBusy: boolean; onOpen?: () => void; onEdit: () => void; onDelete: () => void; onAddSubcategory?: () => void }) {
   const resolvedType = category.resolved_category_type ?? category.category_type;
   const resolvedTracking = category.resolved_tracking_type ?? category.tracking_type;
 
   return (
-    <div className="user-card" onClick={onOpen} style={onOpen ? { cursor: "pointer" } : undefined}>
-      <div className="user-card-head">
-        <StatusPill active={category.is_active} />
-      </div>
-      <div className="user-card-name">{category.name}</div>
-      <div className="user-card-meta mono">{category.code}</div>
-      <div className="user-card-section">
-        <div className="eyebrow">Classification</div>
-        <div className="group-cell">
-          <span className="chip">{formatLabel(resolvedType)}</span>
-          {resolvedTracking ? <span className={trackingChipClass(resolvedTracking)}>{formatLabel(resolvedTracking)}</span> : <span className="chip">{trackingSummary}</span>}
+    <div className="location-card" data-status={category.is_active ? "active" : "inactive"} onClick={onOpen} style={onOpen ? { cursor: "pointer" } : undefined}>
+      <div className="location-card-head">
+        <div className="location-card-icon" aria-hidden="true">
+          <Ic d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" size={20} />
+        </div>
+        <div className="location-card-title-wrap">
+          <div className="location-card-title-row">
+            <div className="location-card-name" title={category.name}>{category.name}</div>
+            <StatusPill active={category.is_active} />
+          </div>
+          <div className="location-card-sub">
+            <span className="location-card-code mono">{category.code}</span>
+            <span className="location-card-dot" aria-hidden="true">•</span>
+            <span>{formatLabel(resolvedType)}</span>
+          </div>
         </div>
       </div>
-      <div className="user-card-section">
-        <div className="eyebrow">Structure</div>
-        {category.parent_category_display ? (
-          <div style={{ fontSize: 13, color: "var(--text-1)" }}>{category.parent_category_display}</div>
-        ) : (
-          <div style={{ display: "grid", gap: 6 }}>
-            <SubcategorySummary names={childNames} />
-            <div className="muted-note mono">{childCount} direct subcategories</div>
-          </div>
-        )}
+
+      <div className="location-card-meta">
+        <div className="location-card-row">
+          <span className="location-card-row-icon" aria-hidden="true">
+            <Ic d="M3 6h18 M3 12h18 M3 18h18" size={13} />
+          </span>
+          <span className="location-card-label">Tracking</span>
+          <span className="location-card-value">
+            {resolvedTracking ? formatLabel(resolvedTracking) : trackingSummary}
+          </span>
+        </div>
+        <div className="location-card-row">
+          <span className="location-card-row-icon" aria-hidden="true">
+            <Ic d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" size={13} />
+          </span>
+          <span className="location-card-label">Parent</span>
+          <span className={"location-card-value" + (!category.parent_category_display ? " muted-value" : "")}>
+            {category.parent_category_display ?? "Root category"}
+          </span>
+        </div>
       </div>
-      <div className="user-card-foot">
-        <div>
+
+      {onAddSubcategory && (
+        <div className="category-card-subs">
+          <div className="category-card-subs-head">
+            <span className="eyebrow">Subcategories</span>
+            <span className="category-card-subs-count mono">{childCount}</span>
+          </div>
+          <div className="category-card-subs-body">
+            {childCount === 0 ? (
+              <span className="muted-note">No subcategories yet</span>
+            ) : (
+              <div className="category-card-subs-chips">
+                {childNames.slice(0, 4).map(name => (
+                  <span key={name} className="chip chip-sub">{name}</span>
+                ))}
+                {childCount > 4 ? <span className="chip chip-sub-more">+{childCount - 4}</span> : null}
+              </div>
+            )}
+            <button
+              type="button"
+              className="subcategory-add-btn"
+              onClick={e => { e.stopPropagation(); onAddSubcategory(); }}
+              disabled={pageBusy}
+              title="Add subcategory"
+            >
+              <Ic d="M12 5v14M5 12h14" size={11} />
+              <span>Add</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="location-card-foot">
+        <div className="location-card-updated">
           <div className="eyebrow">Updated</div>
           <div className="user-card-last mono">{category.updated_at ? relTime(category.updated_at) : "Unknown"}</div>
         </div>
@@ -228,10 +284,11 @@ export function CategoryListView({ variant, parentId }: CategoryListViewProps) {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [density, setDensity] = useState<"compact" | "balanced" | "comfortable">("balanced");
+  const density = "balanced" as const;
   const [mode, setMode] = useState<"table" | "grid">("table");
   const [modalOpen, setModalOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<CategoryRecord | null>(null);
+  const [subcategoryParent, setSubcategoryParent] = useState<CategoryRecord | null>(null);
   const [busyAction, setBusyAction] = useState<{ kind: "delete"; categoryId: number } | null>(null);
 
   const clearFetchError = useCallback(() => setFetchError(null), []);
@@ -556,6 +613,13 @@ export function CategoryListView({ variant, parentId }: CategoryListViewProps) {
 
   const openCreateModal = useCallback(() => {
     setEditingCategory(null);
+    setSubcategoryParent(null);
+    setModalOpen(true);
+  }, []);
+
+  const openAddSubcategoryFor = useCallback((category: CategoryRecord) => {
+    setEditingCategory(null);
+    setSubcategoryParent(category);
     setModalOpen(true);
   }, []);
 
@@ -630,20 +694,34 @@ export function CategoryListView({ variant, parentId }: CategoryListViewProps) {
       setActionError("You do not have permission to delete categories.");
       return;
     }
-    if (category.can_delete === false) {
-      setActionError(deleteBlockedMessage(category.delete_blockers, "This category cannot be deleted because it is linked to existing records."));
+
+    const blockers = category.delete_blockers ?? [];
+    const subcategoryBlockerMsg = "This category has subcategories.";
+    const hasSubcategoryBlocker = blockers.some(b => b.toLowerCase().includes("subcategor"));
+    const otherBlockers = blockers.filter(b => !b.toLowerCase().includes("subcategor"));
+
+    // Only hard-block deletion if blockers exist OTHER than the subcategory one.
+    if (category.can_delete === false && otherBlockers.length > 0) {
+      setActionError(deleteBlockedMessage(otherBlockers, "This category cannot be deleted because it is linked to existing records."));
       return;
     }
 
     if (busyAction) return;
-    const confirmed = window.confirm(`Delete ${category.name}? This cannot be undone.`);
+
+    const subcategoryChildren = allCategories.filter(c => c.parent_category === category.id);
+    const cascade = hasSubcategoryBlocker || subcategoryChildren.length > 0;
+    const confirmed = cascade
+      ? window.confirm(
+          `Delete ${category.name} AND its ${subcategoryChildren.length} subcategor${subcategoryChildren.length === 1 ? "y" : "ies"} (${subcategoryChildren.map(c => c.name).join(", ")})?\n\nThis cannot be undone.`
+        )
+      : window.confirm(`Delete ${category.name}? This cannot be undone.`);
     if (!confirmed) return;
 
     setBusyAction({ kind: "delete", categoryId: category.id });
     clearActionError();
 
     try {
-      await apiFetch(`/api/inventory/categories/${category.id}/`, {
+      await apiFetch(`/api/inventory/categories/${category.id}/${cascade ? "?cascade=true" : ""}`, {
         method: "DELETE",
       });
       const nextRecords = allCategories.filter(item => item.id !== category.id);
@@ -670,6 +748,18 @@ export function CategoryListView({ variant, parentId }: CategoryListViewProps) {
   const footerLabel = isChildrenView ? "Direct subcategories" : "Top-level categories";
   const openCategory = isChildrenView ? undefined : (category: CategoryRecord) => router.push(`/categories/${category.id}`);
   const showTrackingColumn = isChildrenView;
+
+  const noun = isChildrenView ? "subcategory" : "category";
+  const nounPlural = isChildrenView ? "subcategories" : "categories";
+  const totalCategories = filteredCategories.length;
+  const summaryText =
+    totalCategories === 0
+      ? `No ${nounPlural}`
+      : totalCategories === 1
+        ? `1 ${noun}`
+        : pageStart === 1 && pageEnd === totalCategories
+          ? `All ${totalCategories} ${nounPlural}`
+          : `Showing ${pageStart}–${pageEnd} of ${totalCategories} ${nounPlural}`;
 
   return (
     <div data-density={density}>
@@ -717,15 +807,17 @@ export function CategoryListView({ variant, parentId }: CategoryListViewProps) {
 
         <div className="filter-bar">
           <div className="filter-bar-left">
-            <div className="search-input">
+            <label className="search-input">
               <Ic d={<><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></>} size={14} />
               <input
                 placeholder="Search by name, code, parent, or type…"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
+                onClick={e => { if (!e.currentTarget.value) e.currentTarget.setSelectionRange(0, 0); }}
+                onFocus={e => { if (!e.currentTarget.value) e.currentTarget.setSelectionRange(0, 0); }}
               />
-              {search && <button type="button" className="clear-search" onClick={() => setSearch("")}>×</button>}
-            </div>
+              {search && <button type="button" className="clear-search" onClick={e => { e.preventDefault(); setSearch(""); }}>×</button>}
+            </label>
 
             <div className="filter-select-group">
               <div className="chip-filter-label">Type</div>
@@ -762,7 +854,6 @@ export function CategoryListView({ variant, parentId }: CategoryListViewProps) {
           </div>
 
           <div className="filter-bar-right">
-            <DensityToggle density={density} setDensity={setDensity} />
             <div className="seg" title="View mode">
               <button type="button" className={"seg-btn icon-only" + (mode === "table" ? " active" : "")} onClick={() => setMode("table")} title="Table">
                 <Ic d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" size={14} />
@@ -806,17 +897,18 @@ export function CategoryListView({ variant, parentId }: CategoryListViewProps) {
                     <th>Category</th>
                     <th>Code</th>
                     <th>Type</th>
-                    {showTrackingColumn ? <th>Tracking</th> : <th>Subcategories</th>}
-                    {showTrackingColumn ? <th>Parent</th> : <th>Tracking Profile</th>}
+                    {showTrackingColumn ? <th>Tracking</th> : <th>Tracking Profile</th>}
+                    {showTrackingColumn && <th>Parent</th>}
                     <th>Status</th>
                     <th>Updated</th>
+                    {!showTrackingColumn && <th className="col-add-sub">Subcategories</th>}
                     <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredCategories.length === 0 ? (
                     <tr>
-                      <td colSpan={8}>
+                      <td colSpan={isChildrenView ? 8 : 8}>
                         <div style={{ padding: "32px 12px", textAlign: "center", color: "var(--text-2)", fontSize: 13 }}>
                           {emptyMessage}
                         </div>
@@ -832,10 +924,11 @@ export function CategoryListView({ variant, parentId }: CategoryListViewProps) {
                         childNames={childNamesByCategory.get(category.id) ?? []}
                         trackingSummary={trackingSummaryByCategory.get(category.id) ?? "No subcategories"}
                         canEdit={canManageCategories}
-                        canDelete={canDeleteCategories && category.can_delete !== false}
+                        canDelete={canDeleteCategories && canDeleteExcludingSubcategories(category)}
                         onOpen={openCategory ? () => openCategory(category) : undefined}
                         onEdit={canManageCategories ? () => openEditModal(category) : undefined}
-                        onDelete={canDeleteCategories && category.can_delete !== false ? () => handleDelete(category) : undefined}
+                        onDelete={canDeleteCategories && canDeleteExcludingSubcategories(category) ? () => handleDelete(category) : undefined}
+                        onAddSubcategory={!isChildrenView && canManageCategories ? () => openAddSubcategoryFor(category) : undefined}
                         disabled={isLoading || pageBusy}
                         deleteBusy={deleteBusyCategoryId === category.id}
                       />
@@ -847,7 +940,7 @@ export function CategoryListView({ variant, parentId }: CategoryListViewProps) {
           )}
 
           <ListPagination
-            summary={filteredCategories.length === 0 ? `Showing 0 ${isChildrenView ? "subcategories" : "categories"}` : `Showing ${pageStart}-${pageEnd} of ${filteredCategories.length} ${isChildrenView ? "subcategories" : "categories"}`}
+            summary={summaryText}
             page={page}
             totalPages={totalPages}
             onPrev={() => setPage(current => Math.max(1, current - 1))}
@@ -864,12 +957,13 @@ export function CategoryListView({ variant, parentId }: CategoryListViewProps) {
                 childNames={childNamesByCategory.get(category.id) ?? []}
                 trackingSummary={trackingSummaryByCategory.get(category.id) ?? "No subcategories"}
                 canEdit={canManageCategories}
-                canDelete={canDeleteCategories && category.can_delete !== false}
+                canDelete={canDeleteCategories && canDeleteExcludingSubcategories(category)}
                 pageBusy={pageBusy}
                 deleteBusy={deleteBusyCategoryId === category.id}
                 onOpen={openCategory ? () => openCategory(category) : undefined}
                 onEdit={() => openEditModal(category)}
-                onDelete={() => handleDelete(category)}
+                onDelete={canDeleteCategories && canDeleteExcludingSubcategories(category) ? () => handleDelete(category) : undefined}
+                onAddSubcategory={!isChildrenView && canManageCategories ? () => openAddSubcategoryFor(category) : undefined}
               />
             ))}
           </div>
@@ -882,7 +976,7 @@ export function CategoryListView({ variant, parentId }: CategoryListViewProps) {
         )}
         {mode === "grid" && filteredCategories.length > 0 ? (
           <ListPagination
-            summary={`Showing ${pageStart}-${pageEnd} of ${filteredCategories.length} ${isChildrenView ? "subcategories" : "categories"}`}
+            summary={summaryText}
             page={page}
             totalPages={totalPages}
             onPrev={() => setPage(current => Math.max(1, current - 1))}
@@ -895,9 +989,9 @@ export function CategoryListView({ variant, parentId }: CategoryListViewProps) {
           open={modalOpen}
           mode={editingCategory ? "edit" : "create"}
           category={editingCategory}
-          createContext={editingCategory ? "edit" : isChildrenView ? "child" : "root"}
-          lockedParent={editingCategory ? null : parentCategory}
-          onClose={closeModal}
+          createContext={editingCategory ? "edit" : (isChildrenView || subcategoryParent) ? "child" : "root"}
+          lockedParent={editingCategory ? null : (subcategoryParent ?? parentCategory)}
+          onClose={() => { closeModal(); setSubcategoryParent(null); }}
           onSave={handleSave}
         />
       </div>

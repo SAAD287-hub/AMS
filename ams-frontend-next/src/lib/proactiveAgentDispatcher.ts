@@ -1,5 +1,5 @@
 /**
- * Proactive agent dispatcher — pure decision logic.
+ * Proactive agent dispatcher with pure decision logic.
  *
  * Given a typed notification event and a snapshot of the current copilot
  * state, decides whether the event should trigger a proactive agent card,
@@ -46,7 +46,7 @@ export type Decision =
   | { action: "defer"; reason: SuppressReason; event: TypedNotificationEvent }
   | { action: "drop"; reason: SuppressReason; event: TypedNotificationEvent };
 
-/** Snapshot of the most recent proactive fires — driver maintains this. */
+/** Snapshot of the most recent proactive fires; driver maintains this. */
 export interface ProactiveHistory {
   /** Epoch ms of every proactive fire in the last RATE_LIMIT_WINDOW_MS. */
   recentFireTimestamps: readonly number[];
@@ -62,14 +62,14 @@ export interface DispatchInput {
   /**
    * The currently signed-in user's id, or null when unknown. Used by the
    * self-action suppression rule: a notification triggered BY this user (the
-   * actor) is dropped — the user knows what they just did and an auto-card
+   * actor) is dropped, since the user knows what they just did and an auto-card
    * would be redundant noise. Notifications about OTHER users' actions still
    * fire normally because actor_id won't match.
    */
   currentUserId: number | null;
 }
 
-// Tuneable knobs — these are the levers if "too noisy" / "too quiet" feedback
+// Tuneable knobs: these are the levers if "too noisy" / "too quiet" feedback
 // comes from real users. Conservative defaults intentionally err toward
 // "too quiet" because over-firing is the more disruptive failure mode.
 
@@ -106,7 +106,7 @@ export function decideProactiveAction(input: DispatchInput): Decision {
 
   // 1. The event itself must be agent-actionable. Without a typed kind AND
   //    a suggested_intent AND a non-null intent_target, the agent has
-  //    nothing concrete to offer — we'd just generate a generic "want
+  //    nothing concrete to offer, so we'd just generate a generic "want
   //    help?" card. Drop it; the user still sees it in the notification
   //    feed normally.
   if (!isAgentActionableEvent(event)) {
@@ -114,7 +114,7 @@ export function decideProactiveAction(input: DispatchInput): Decision {
   }
 
   // 2. Self-action suppression. If THIS user triggered the action that
-  //    produced the notification, they already know what they did — a
+  //    produced the notification, they already know what they did, so a
   //    proactive card would be redundant noise (especially for admins with
   //    cross-stage permissions who get notified about their own submits).
   //    The notification still appears in the feed for record-keeping; we
@@ -122,7 +122,7 @@ export function decideProactiveAction(input: DispatchInput): Decision {
   //    with the same permission) still get the card because their
   //    currentUserId won't match the actor.
   //
-  //    Dropped, not deferred — replaying it later would not help, the user
+  //    Dropped, not deferred, because replaying it later would not help, the user
   //    will have moved on. This check sits ahead of state checks so a
   //    busy/snoozed/hidden state doesn't change the outcome: self-actions
   //    never need a card.
@@ -134,14 +134,14 @@ export function decideProactiveAction(input: DispatchInput): Decision {
     return { action: "drop", reason: "self_action", event };
   }
 
-  // 3. Tab hidden — defer. Never proactive-fire into a hidden tab; the user
+  // 3. Tab hidden, so defer. Never proactive-fire into a hidden tab; the user
   //    won't see it and the card just clutters the chat when they return.
   //    On visibility-restored the caller replays deferred events.
   if (state === "tab_hidden") {
     return { action: "defer", reason: "tab_hidden", event };
   }
 
-  // 4. User explicitly snoozed proactive offers. Drop, not defer — when the
+  // 4. User explicitly snoozed proactive offers. Drop, not defer, because when the
   //    snooze ends the user does NOT want a backlog of stale cards from
   //    the snoozed window. Recent events that matter will re-emit if still
   //    relevant.
@@ -149,28 +149,28 @@ export function decideProactiveAction(input: DispatchInput): Decision {
     return { action: "drop", reason: "snoozed", event };
   }
 
-  // 5. Agent currently running. Defer — the agent is in the middle of work
+  // 5. Agent currently running. Defer because the agent is in the middle of work
   //    and interrupting with a proactive card mid-run would look chaotic.
   //    The caller replays the queue when state flips back to "idle".
   if (state === "running") {
     return { action: "defer", reason: "agent_busy", event };
   }
 
-  // 6. HITL approval card visible. Defer — the user is actively reviewing
+  // 6. HITL approval card visible. Defer because the user is actively reviewing
   //    something the agent asked for. A second card on top would compete
   //    for attention with the existing approval.
   if (state === "awaiting_user") {
     return { action: "defer", reason: "awaiting_user_action", event };
   }
 
-  // 7. User is typing into the composer. Defer — they're already
+  // 7. User is typing into the composer. Defer because they're already
   //    composing input and a card popping in would be jarring.
   if (state === "user_typing") {
     return { action: "defer", reason: "user_typing", event };
   }
 
   // 8. Per-entity dedup. The same entity (e.g., inspection #42) cannot fire
-  //    twice within PER_ENTITY_DEDUP_MS. Drop, not defer — if we kept
+  //    twice within PER_ENTITY_DEDUP_MS. Drop, not defer, because if we kept
   //    deferring duplicates the queue would balloon. The user will see
   //    coalesced bursts in the next eligible event for this entity.
   const entityKey = buildEntityKey(event);
@@ -179,7 +179,7 @@ export function decideProactiveAction(input: DispatchInput): Decision {
     return { action: "drop", reason: "duplicate_in_window", event };
   }
 
-  // 9. Rate limit. Look back RATE_LIMIT_WINDOW_MS — if we've already fired
+  // 9. Rate limit. Look back RATE_LIMIT_WINDOW_MS, and if we've already fired
   //    RATE_LIMIT_MAX cards, drop. Same reasoning as dedup: a backlog of
   //    rate-limited events is worse than skipping them. Telemetry counts
   //    these so we can tune RATE_LIMIT_MAX from real usage.

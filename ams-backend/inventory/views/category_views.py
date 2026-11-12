@@ -34,8 +34,9 @@ class CategoryViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
+        cascade = str(request.query_params.get('cascade', '')).lower() in ('1', 'true', 'yes')
         try:
-            delete_with_policy(instance)
+            delete_with_policy(instance, cascade_subcategories=cascade)
         except DeletionBlocked as exc:
             return Response(
                 {'detail': 'Delete is blocked by existing dependencies.', 'delete_blockers': exc.blockers},

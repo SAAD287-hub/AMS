@@ -374,7 +374,13 @@ export function CategoryModal({ open, mode, category, createContext = "root", lo
         </header>
 
         <div className="modal-body">
-          <div style={{ paddingTop: 24 }}>
+          <div className="stock-entry-help" style={{ margin: "20px 24px 0" }}>
+            <div className="stock-entry-help-title">About categories</div>
+            <div className="stock-entry-help-body">
+              Categories group similar items together (e.g. &quot;Electronics&quot;). Sub-categories narrow it further (e.g. &quot;Laptops&quot; under Electronics) and define how items are tracked: by quantity (bulk) or by individual unit (serial-tracked). Create a parent category first, then add sub-categories under it.
+            </div>
+          </div>
+          <div style={{ paddingTop: 20 }}>
             <div style={{ display: "grid", gap: 16, padding: "0 24px 24px" }}>
               {loadStatusMessage && (
                 <div style={{ padding: "10px 14px", background: "var(--warning-weak)", border: "1px solid color-mix(in oklch, var(--warn) 30%, transparent)", borderRadius: "var(--radius)", color: "var(--text-1)", fontSize: 13 }}>

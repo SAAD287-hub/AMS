@@ -16,7 +16,7 @@ import { buildCopilotListContext } from "@/lib/copilotPageContext";
 import { consumePendingOpen, SAME_PAGE_OPEN_EVENT } from "@/lib/copilotPendingAction";
 import { useClientPagination } from "@/lib/listPagination";
 import { filterStockRegisters, getCreatableStockRegisterStoreOptions } from "@/lib/stockRegisterUi";
-import { relTime, type LocationRecord, type StockRegisterRecord } from "@/lib/userUiShared";
+import { relTime, formatListSummary, type LocationRecord, type StockRegisterRecord } from "@/lib/userUiShared";
 import { Button } from "@/components/ui/button";
 
 
@@ -140,7 +140,7 @@ function RowActions({
     <div className="row-actions">
       {canRenderEdit && (
         <Button type="button" variant="ghost" size="xs" className="row-action" onClick={(event) => { event.stopPropagation(); onEdit?.(); }} title="Edit stock register" disabled={disabled}>
-          <Ic d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" size={13} />
+          <Ic d="M12 20h9 M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" size={13} />
           <span className="ra-label">Edit</span>
         </Button>
       )}
@@ -158,7 +158,7 @@ function RowActions({
       )}
       {canRenderDelete && (
         <Button type="button" variant="outline" size="xs" className="btn-danger-ghost row-action" onClick={(event) => { event.stopPropagation(); onDelete?.(); }} title="Delete stock register" disabled={disabled}>
-          <Ic d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0l1 12h6l1-12" size={13} />
+          <Ic d="M3 6h18 M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6 M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2 M10 11v6 M14 11v6" size={13} />
           <span className="ra-label">{deleteBusy ? "Deleting…" : "Delete"}</span>
         </Button>
       )}
@@ -324,7 +324,13 @@ function RegisterLifecycleModal({
           </button>
         </header>
         <div className="modal-body">
-          <div style={{ paddingTop: 24 }}>
+          <div className="stock-entry-help" style={{ margin: "20px 24px 0" }}>
+            <div className="stock-entry-help-title">What is a stock register?</div>
+            <div className="stock-entry-help-body">
+              A stock register is the physical paper ledger that each store maintains alongside the system, and every movement (receipt / issue / return) is hand-written there with a page number. This record links the digital entry to its paper trail so auditors can cross-check both. Create one register per store (e.g. &quot;REG-001&quot; for Central Store).
+            </div>
+          </div>
+          <div style={{ paddingTop: 20 }}>
             <div style={{ display: "grid", gap: 16, padding: "0 24px 24px" }}>
               {submitError && (
                 <div style={{ padding: "10px 14px", background: "var(--danger-weak)", border: "1px solid color-mix(in oklch, var(--danger) 30%, transparent)", borderRadius: "var(--radius)", color: "var(--danger)", fontSize: 13 }}>
@@ -720,11 +726,17 @@ export function StockRegisterListView() {
 
         <div className="filter-bar">
           <div className="filter-bar-left">
-            <div className="search-input">
+            <label className="search-input">
               <Ic d={<><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></>} size={14} />
-              <input placeholder="Search by register number, type, or store…" value={search} onChange={(e) => setSearch(e.target.value)} />
-              {search && <button type="button" className="clear-search" onClick={() => setSearch("")}>×</button>}
-            </div>
+              <input
+                placeholder="Search by register number, type, or store…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onClick={e => { if (!e.currentTarget.value) e.currentTarget.setSelectionRange(0, 0); }}
+                onFocus={e => { if (!e.currentTarget.value) e.currentTarget.setSelectionRange(0, 0); }}
+              />
+              {search && <button type="button" className="clear-search" onClick={e => { e.preventDefault(); setSearch(""); }}>×</button>}
+            </label>
 
             <div className="filter-select-group">
               <div className="chip-filter-label">Type</div>
@@ -834,7 +846,7 @@ export function StockRegisterListView() {
               </table>
             </div>
             <ListPagination
-              summary={filteredRegisters.length === 0 ? "Showing 0 stock registers" : `Showing ${pageStart}-${pageEnd} of ${filteredRegisters.length} stock registers`}
+              summary={formatListSummary(filteredRegisters.length, pageStart, pageEnd, "stock register", "stock registers")}
               page={page}
               totalPages={totalPages}
               onPrev={() => setPage(current => Math.max(1, current - 1))}
@@ -867,7 +879,7 @@ export function StockRegisterListView() {
         )}
         {mode === "grid" && filteredRegisters.length > 0 ? (
           <ListPagination
-            summary={`Showing ${pageStart}-${pageEnd} of ${filteredRegisters.length} stock registers`}
+            summary={formatListSummary(filteredRegisters.length, pageStart, pageEnd, "stock register", "stock registers")}
             page={page}
             totalPages={totalPages}
             onPrev={() => setPage(current => Math.max(1, current - 1))}

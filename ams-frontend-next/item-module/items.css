@@ -1,5 +1,5 @@
 /* ============================================================
-   NED AMS — Items module
+   NED AMS - Items module
    Master-detail split-pane + unified detail page
    Built on globals.css and detail.css tokens.
    ============================================================ */
@@ -1020,7 +1020,7 @@ body { padding-top: 31px; }
 }
 
 /* ============ TWEAKS PANEL custom ============ */
-/* (using starter tweaks-panel.jsx — no overrides needed) */
+/* (using starter tweaks-panel.jsx - no overrides needed) */
 
 /* ---------- responsive ---------- */
 @media (max-width: 1100px) {

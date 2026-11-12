@@ -40,7 +40,7 @@ type InspectionDistributionPayload = {
 };
 
 function formatDate(value: string | null | undefined) {
-  return value ? formatInspectionDate(value) : "—";
+  return value ? formatInspectionDate(value) : "-";
 }
 
 function detailKindLabel(kind: "store" | "person" | "location") {
@@ -114,7 +114,7 @@ export default function InspectionItemDistributionPage() {
       return acc;
     }, { total: 0, available: 0, allocated: 0, inTransit: 0, rows: 0 });
   }, [payload]);
-  const trackingBatch = payload?.inspection_item.tracking_lot ?? "—";
+  const trackingBatch = payload?.inspection_item.tracking_lot ?? "-";
 
   return (
     <div>
@@ -227,7 +227,7 @@ export default function InspectionItemDistributionPage() {
                             <td>{detailKindLabel(row.kind)}</td>
                             <td>{rowStateLabel(row)}</td>
                             <td className="num center">{formatQuantity(row.quantity)}</td>
-                            <td>{row.stockEntryIds.length ? row.stockEntryIds.map(id => <Link key={id} className="link-inline" href={`/stock-entries/${id}`}>#{id}</Link>).reduce((prev, curr) => <>{prev}, {curr}</>) : "—"}</td>
+                            <td>{row.stockEntryIds.length ? row.stockEntryIds.map(id => <Link key={id} className="link-inline" href={`/stock-entries/${id}`}>#{id}</Link>).reduce((prev, curr) => <>{prev}, {curr}</>) : "-"}</td>
                           </tr>
                         ))}
                       </tbody>

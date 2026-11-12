@@ -1,12 +1,12 @@
 /* ============================================================
-   NED AMS — Items module data
+   NED AMS - Items module data
    ============================================================ */
 
 window.ITEMS = [
   {
     id: 'ITM-0142',
     code: 'IT-PRT-0142',
-    name: 'HP LaserJet Pro M404dn — Monochrome Printer',
+    name: 'HP LaserJet Pro M404dn - Monochrome Printer',
     category: 'IT Equipment / Printers',
     tracking: 'individual',
     unit: 'unit',
@@ -40,13 +40,13 @@ window.ITEMS = [
             id: 'cs-fac-rooms', code: 'L-CS-F-12', name: 'Faculty Office Rooms', kind: 'sub-location',
             qty: 7, deployed: 7,
             children: [
-              { id: 'cs-r-201', code: 'R-201', name: 'Room 201 — Dr. A. Khan', kind: 'leaf-room', qty: 1, deployed: 1, instance: { tag: 'CS-PRT-011', name: 'M404dn — assigned to A. Khan', status: 'in-use', meta: 'Deployed 14 Jan 2026' } },
-              { id: 'cs-r-203', code: 'R-203', name: 'Room 203 — Dr. F. Siddiqui', kind: 'leaf-room', qty: 1, deployed: 1, instance: { tag: 'CS-PRT-012', name: 'M404dn — assigned to F. Siddiqui', status: 'in-use', meta: 'Deployed 14 Jan 2026' } },
-              { id: 'cs-r-205', code: 'R-205', name: 'Room 205 — Dr. M. Hassan', kind: 'leaf-room', qty: 1, deployed: 1, instance: { tag: 'CS-PRT-013', name: 'M404dn — assigned to M. Hassan', status: 'in-use', meta: 'Deployed 14 Jan 2026' } },
-              { id: 'cs-r-207', code: 'R-207', name: 'Room 207 — Dr. R. Ahmed', kind: 'leaf-room', qty: 1, deployed: 1, instance: { tag: 'CS-PRT-014', name: 'M404dn — assigned to R. Ahmed', status: 'in-use', meta: 'Deployed 19 Jan 2026' } },
-              { id: 'cs-r-209', code: 'R-209', name: 'Room 209 — Dr. S. Khan', kind: 'leaf-room', qty: 1, deployed: 1, instance: { tag: 'CS-PRT-015', name: 'M404dn — assigned to S. Khan', status: 'in-use', meta: 'Deployed 19 Jan 2026' } },
-              { id: 'cs-r-211', code: 'R-211', name: 'Room 211 — Dr. T. Mahmood', kind: 'leaf-room', qty: 1, deployed: 1, instance: { tag: 'CS-PRT-016', name: 'M404dn — assigned to T. Mahmood', status: 'in-use', meta: 'Deployed 22 Jan 2026' } },
-              { id: 'cs-r-215', code: 'R-215', name: 'Room 215 — HOD Office', kind: 'leaf-room', qty: 1, deployed: 1, instance: { tag: 'CS-PRT-017', name: 'M404dn — HOD Office', status: 'in-use', meta: 'Deployed 22 Jan 2026' } },
+              { id: 'cs-r-201', code: 'R-201', name: 'Room 201 - Dr. A. Khan', kind: 'leaf-room', qty: 1, deployed: 1, instance: { tag: 'CS-PRT-011', name: 'M404dn - assigned to A. Khan', status: 'in-use', meta: 'Deployed 14 Jan 2026' } },
+              { id: 'cs-r-203', code: 'R-203', name: 'Room 203 - Dr. F. Siddiqui', kind: 'leaf-room', qty: 1, deployed: 1, instance: { tag: 'CS-PRT-012', name: 'M404dn - assigned to F. Siddiqui', status: 'in-use', meta: 'Deployed 14 Jan 2026' } },
+              { id: 'cs-r-205', code: 'R-205', name: 'Room 205 - Dr. M. Hassan', kind: 'leaf-room', qty: 1, deployed: 1, instance: { tag: 'CS-PRT-013', name: 'M404dn - assigned to M. Hassan', status: 'in-use', meta: 'Deployed 14 Jan 2026' } },
+              { id: 'cs-r-207', code: 'R-207', name: 'Room 207 - Dr. R. Ahmed', kind: 'leaf-room', qty: 1, deployed: 1, instance: { tag: 'CS-PRT-014', name: 'M404dn - assigned to R. Ahmed', status: 'in-use', meta: 'Deployed 19 Jan 2026' } },
+              { id: 'cs-r-209', code: 'R-209', name: 'Room 209 - Dr. S. Khan', kind: 'leaf-room', qty: 1, deployed: 1, instance: { tag: 'CS-PRT-015', name: 'M404dn - assigned to S. Khan', status: 'in-use', meta: 'Deployed 19 Jan 2026' } },
+              { id: 'cs-r-211', code: 'R-211', name: 'Room 211 - Dr. T. Mahmood', kind: 'leaf-room', qty: 1, deployed: 1, instance: { tag: 'CS-PRT-016', name: 'M404dn - assigned to T. Mahmood', status: 'in-use', meta: 'Deployed 22 Jan 2026' } },
+              { id: 'cs-r-215', code: 'R-215', name: 'Room 215 - HOD Office', kind: 'leaf-room', qty: 1, deployed: 1, instance: { tag: 'CS-PRT-017', name: 'M404dn - HOD Office', status: 'in-use', meta: 'Deployed 22 Jan 2026' } },
             ]
           },
           {
@@ -60,8 +60,8 @@ window.ITEMS = [
             id: 'cs-repair', code: 'REPAIR', name: 'Awaiting repair', kind: 'repair',
             qty: 2, repair: 2,
             instances: [
-              { tag: 'CS-PRT-008', name: 'M404dn — paper jam fault', status: 'repair', meta: 'Sent to vendor · 18 Apr' },
-              { tag: 'CS-PRT-018', name: 'M404dn — fuser replacement', status: 'repair', meta: 'In-house repair · 22 Apr' },
+              { tag: 'CS-PRT-008', name: 'M404dn - paper jam fault', status: 'repair', meta: 'Sent to vendor · 18 Apr' },
+              { tag: 'CS-PRT-018', name: 'M404dn - fuser replacement', status: 'repair', meta: 'In-house repair · 22 Apr' },
             ]
           },
         ]
@@ -108,7 +108,7 @@ window.ITEMS = [
   {
     id: 'ITM-0271',
     code: 'STA-PAP-A4',
-    name: 'A4 Photocopy Paper — 80gsm, 500 sheets/ream',
+    name: 'A4 Photocopy Paper - 80gsm, 500 sheets/ream',
     category: 'Stationery / Paper',
     tracking: 'quantity',
     unit: 'reams',
@@ -141,7 +141,7 @@ window.ITEMS = [
   {
     id: 'ITM-0508',
     code: 'CHM-ETH-99',
-    name: 'Ethanol — 99.9% Anhydrous (Lab Grade)',
+    name: 'Ethanol - 99.9% Anhydrous (Lab Grade)',
     category: 'Chemicals / Solvents',
     tracking: 'perishable',
     unit: 'L',
@@ -175,23 +175,23 @@ window.ITEMS = [
   },
 
   // ----- Filler list items so the list looks populated -----
-  { id: 'ITM-0143', code: 'IT-LAP-DEL-7480', name: 'Dell Latitude 7480 — Faculty Laptop', category: 'IT Equipment / Laptops', tracking: 'individual', unit: 'unit', totalQty: 86, locationCount: 9, lastMovement: '6h ago' },
+  { id: 'ITM-0143', code: 'IT-LAP-DEL-7480', name: 'Dell Latitude 7480 - Faculty Laptop', category: 'IT Equipment / Laptops', tracking: 'individual', unit: 'unit', totalQty: 86, locationCount: 9, lastMovement: '6h ago' },
   { id: 'ITM-0144', code: 'IT-LAP-LEN-T14', name: 'Lenovo ThinkPad T14 Gen 4', category: 'IT Equipment / Laptops', tracking: 'individual', unit: 'unit', totalQty: 124, locationCount: 11, lastMovement: '1 day ago' },
-  { id: 'ITM-0145', code: 'IT-MON-DEL-24', name: 'Dell P2422H — 24" Monitor', category: 'IT Equipment / Displays', tracking: 'individual', unit: 'unit', totalQty: 215, locationCount: 14, lastMovement: '3h ago' },
-  { id: 'ITM-0188', code: 'IT-PRJ-EPS', name: 'Epson EB-X06 — Classroom Projector', category: 'IT Equipment / Projectors', tracking: 'individual', unit: 'unit', totalQty: 42, locationCount: 22, lastMovement: '4 days ago' },
-  { id: 'ITM-0212', code: 'FUR-CHR-TASK', name: 'Ergonomic Task Chair — Mesh Back', category: 'Furniture / Chairs', tracking: 'individual', unit: 'unit', totalQty: 318, locationCount: 28, lastMovement: '12 days ago' },
-  { id: 'ITM-0213', code: 'FUR-DSK-FAC', name: 'Faculty Desk — 1500×750mm Laminate', category: 'Furniture / Desks', tracking: 'individual', unit: 'unit', totalQty: 184, locationCount: 24, lastMovement: '1 week ago' },
-  { id: 'ITM-0270', code: 'STA-PEN-BLK', name: 'Ballpoint Pen — Blue (Box of 50)', category: 'Stationery / Writing', tracking: 'quantity', unit: 'boxes', totalQty: 84, locationCount: 18, lastMovement: '2 days ago' },
-  { id: 'ITM-0272', code: 'STA-FLD-MAN', name: 'Manila File Folders — A4 (Pack of 100)', category: 'Stationery / Filing', tracking: 'quantity', unit: 'packs', totalQty: 156, locationCount: 16, lastMovement: '4 days ago', isLow: true },
-  { id: 'ITM-0273', code: 'STA-STA-RM', name: 'Stapler Pins — 24/6 (Box of 5000)', category: 'Stationery / Supplies', tracking: 'quantity', unit: 'boxes', totalQty: 240, locationCount: 22, lastMovement: '1 day ago' },
-  { id: 'ITM-0341', code: 'CLN-DET-LIQ', name: 'Floor Cleaner — 5L Concentrate', category: 'Cleaning / Detergents', tracking: 'quantity', unit: 'cans', totalQty: 64, locationCount: 8, lastMovement: '3 days ago' },
+  { id: 'ITM-0145', code: 'IT-MON-DEL-24', name: 'Dell P2422H - 24" Monitor', category: 'IT Equipment / Displays', tracking: 'individual', unit: 'unit', totalQty: 215, locationCount: 14, lastMovement: '3h ago' },
+  { id: 'ITM-0188', code: 'IT-PRJ-EPS', name: 'Epson EB-X06 - Classroom Projector', category: 'IT Equipment / Projectors', tracking: 'individual', unit: 'unit', totalQty: 42, locationCount: 22, lastMovement: '4 days ago' },
+  { id: 'ITM-0212', code: 'FUR-CHR-TASK', name: 'Ergonomic Task Chair - Mesh Back', category: 'Furniture / Chairs', tracking: 'individual', unit: 'unit', totalQty: 318, locationCount: 28, lastMovement: '12 days ago' },
+  { id: 'ITM-0213', code: 'FUR-DSK-FAC', name: 'Faculty Desk - 1500×750mm Laminate', category: 'Furniture / Desks', tracking: 'individual', unit: 'unit', totalQty: 184, locationCount: 24, lastMovement: '1 week ago' },
+  { id: 'ITM-0270', code: 'STA-PEN-BLK', name: 'Ballpoint Pen - Blue (Box of 50)', category: 'Stationery / Writing', tracking: 'quantity', unit: 'boxes', totalQty: 84, locationCount: 18, lastMovement: '2 days ago' },
+  { id: 'ITM-0272', code: 'STA-FLD-MAN', name: 'Manila File Folders - A4 (Pack of 100)', category: 'Stationery / Filing', tracking: 'quantity', unit: 'packs', totalQty: 156, locationCount: 16, lastMovement: '4 days ago', isLow: true },
+  { id: 'ITM-0273', code: 'STA-STA-RM', name: 'Stapler Pins - 24/6 (Box of 5000)', category: 'Stationery / Supplies', tracking: 'quantity', unit: 'boxes', totalQty: 240, locationCount: 22, lastMovement: '1 day ago' },
+  { id: 'ITM-0341', code: 'CLN-DET-LIQ', name: 'Floor Cleaner - 5L Concentrate', category: 'Cleaning / Detergents', tracking: 'quantity', unit: 'cans', totalQty: 64, locationCount: 8, lastMovement: '3 days ago' },
   { id: 'ITM-0342', code: 'CLN-MOP-IND', name: 'Industrial Mop with Bucket', category: 'Cleaning / Equipment', tracking: 'quantity', unit: 'units', totalQty: 38, locationCount: 12, lastMovement: '1 week ago' },
-  { id: 'ITM-0509', code: 'CHM-HCL-37', name: 'Hydrochloric Acid — 37% (2.5L)', category: 'Chemicals / Acids', tracking: 'perishable', unit: 'bottles', totalQty: 28, locationCount: 3, lastMovement: '8 days ago' },
-  { id: 'ITM-0510', code: 'CHM-NAOH-PEL', name: 'Sodium Hydroxide Pellets — 1kg', category: 'Chemicals / Bases', tracking: 'perishable', unit: 'kg', totalQty: 18, locationCount: 4, lastMovement: '11 days ago', isLow: true },
-  { id: 'ITM-0612', code: 'LAB-BEK-250', name: 'Borosilicate Beaker — 250ml', category: 'Lab Glassware / Beakers', tracking: 'quantity', unit: 'pcs', totalQty: 412, locationCount: 18, lastMovement: '2 days ago' },
-  { id: 'ITM-0613', code: 'LAB-FLK-500', name: 'Erlenmeyer Flask — 500ml', category: 'Lab Glassware / Flasks', tracking: 'quantity', unit: 'pcs', totalQty: 285, locationCount: 14, lastMovement: '4 days ago' },
-  { id: 'ITM-0701', code: 'TLS-DRL-COR', name: 'Bosch GBM 6 RE — Corded Drill', category: 'Tools / Power Tools', tracking: 'individual', unit: 'unit', totalQty: 12, locationCount: 4, lastMovement: '6 days ago' },
-  { id: 'ITM-0702', code: 'TLS-MUL-DGT', name: 'Fluke 117 — Digital Multimeter', category: 'Tools / Test & Measure', tracking: 'individual', unit: 'unit', totalQty: 24, locationCount: 6, lastMovement: '2 days ago' },
-  { id: 'ITM-0850', code: 'SAF-EXT-CO2', name: 'Fire Extinguisher — CO2 5kg', category: 'Safety / Fire', tracking: 'individual', unit: 'unit', totalQty: 142, locationCount: 38, lastMovement: '1 month ago' },
-  { id: 'ITM-0851', code: 'SAF-HEL-Y', name: 'Safety Helmet — Yellow', category: 'Safety / PPE', tracking: 'quantity', unit: 'pcs', totalQty: 220, locationCount: 12, lastMovement: '2 weeks ago' },
+  { id: 'ITM-0509', code: 'CHM-HCL-37', name: 'Hydrochloric Acid - 37% (2.5L)', category: 'Chemicals / Acids', tracking: 'perishable', unit: 'bottles', totalQty: 28, locationCount: 3, lastMovement: '8 days ago' },
+  { id: 'ITM-0510', code: 'CHM-NAOH-PEL', name: 'Sodium Hydroxide Pellets - 1kg', category: 'Chemicals / Bases', tracking: 'perishable', unit: 'kg', totalQty: 18, locationCount: 4, lastMovement: '11 days ago', isLow: true },
+  { id: 'ITM-0612', code: 'LAB-BEK-250', name: 'Borosilicate Beaker - 250ml', category: 'Lab Glassware / Beakers', tracking: 'quantity', unit: 'pcs', totalQty: 412, locationCount: 18, lastMovement: '2 days ago' },
+  { id: 'ITM-0613', code: 'LAB-FLK-500', name: 'Erlenmeyer Flask - 500ml', category: 'Lab Glassware / Flasks', tracking: 'quantity', unit: 'pcs', totalQty: 285, locationCount: 14, lastMovement: '4 days ago' },
+  { id: 'ITM-0701', code: 'TLS-DRL-COR', name: 'Bosch GBM 6 RE - Corded Drill', category: 'Tools / Power Tools', tracking: 'individual', unit: 'unit', totalQty: 12, locationCount: 4, lastMovement: '6 days ago' },
+  { id: 'ITM-0702', code: 'TLS-MUL-DGT', name: 'Fluke 117 - Digital Multimeter', category: 'Tools / Test & Measure', tracking: 'individual', unit: 'unit', totalQty: 24, locationCount: 6, lastMovement: '2 days ago' },
+  { id: 'ITM-0850', code: 'SAF-EXT-CO2', name: 'Fire Extinguisher - CO2 5kg', category: 'Safety / Fire', tracking: 'individual', unit: 'unit', totalQty: 142, locationCount: 38, lastMovement: '1 month ago' },
+  { id: 'ITM-0851', code: 'SAF-HEL-Y', name: 'Safety Helmet - Yellow', category: 'Safety / PPE', tracking: 'quantity', unit: 'pcs', totalQty: 220, locationCount: 12, lastMovement: '2 weeks ago' },
 ];

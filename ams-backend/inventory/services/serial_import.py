@@ -25,7 +25,7 @@ SERIAL_EXTRACTION_SCHEMA = {
             "description": (
                 "List of unique serial numbers visible on the document. "
                 "A serial number is an alphanumeric identifier that uniquely "
-                "identifies one physical unit — typically 5 to 30 characters, "
+                "identifies one physical unit, typically 5 to 30 characters, "
                 "mixing letters and digits (e.g. 'C02NQCC6FY17', '4CE0460D0G', "
                 "'SN-2026-0001'). It commonly appears next to a label like "
                 "'Serial No.', 'S/N', '(S) Serial', or 'Asset Tag', or printed "

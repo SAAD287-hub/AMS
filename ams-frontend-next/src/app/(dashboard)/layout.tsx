@@ -9,6 +9,7 @@ import { AppSidebar } from "@/components/AppSidebar";
 import { CopilotSidePanel } from "@/components/CopilotSidePanel";
 import { CopilotProvider } from "@/contexts/CopilotContext";
 import { NotificationToastHost } from "@/components/NotificationToastHost";
+import { ToastProvider, ToastBridgeInstaller } from "@/components/Toast";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, isAuthenticated, isLoading } = useAuth();
@@ -19,6 +20,37 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       router.replace("/login");
     }
   }, [isAuthenticated, isLoading, router]);
+
+  // Global behavior fix for every .search-input: clicking anywhere inside
+  // (padding, icon, empty space) forwards focus to the inner input, and
+  // when the input is empty the caret always lands at position 0.
+  useEffect(() => {
+    const onMouseDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      const container = target.closest(".search-input");
+      if (!container) return;
+      if (target instanceof HTMLInputElement) return;
+      if (target instanceof HTMLButtonElement) return;
+      const input = container.querySelector("input");
+      if (!input) return;
+      event.preventDefault();
+      input.focus();
+      if (!input.value) input.setSelectionRange(0, 0);
+    };
+    const onFocusIn = (event: FocusEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!(target instanceof HTMLInputElement)) return;
+      if (!target.closest(".search-input")) return;
+      if (!target.value) target.setSelectionRange(0, 0);
+    };
+    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("focusin", onFocusIn);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("focusin", onFocusIn);
+    };
+  }, []);
 
   if (isLoading) {
     return (
@@ -39,14 +71,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <CapabilitiesProvider>
       <NotificationsProvider>
         <CopilotProvider>
-          <div className="app-frame">
-            <AppSidebar />
-            <div className="main-col">
-              {children}
-              {user?.ai_enabled === true && <CopilotSidePanel key={user.id} />}
-              <NotificationToastHost />
+          <ToastProvider>
+            <ToastBridgeInstaller />
+            <div className="app-frame">
+              <AppSidebar />
+              <div className="main-col">
+                {children}
+                {user?.ai_enabled === true && <CopilotSidePanel key={user.id} />}
+                <NotificationToastHost />
+              </div>
             </div>
-          </div>
+          </ToastProvider>
         </CopilotProvider>
       </NotificationsProvider>
     </CapabilitiesProvider>

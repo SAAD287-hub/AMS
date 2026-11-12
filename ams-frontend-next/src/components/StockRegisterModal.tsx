@@ -168,7 +168,7 @@ export function StockRegisterModal({ open, mode, register, stores, storesLoading
   const statusMessage = useMemo(() => {
     if (storesLoading) return "Loading stores before save becomes available.";
     if (storesError) return storesError;
-    if (stores.length === 0) return "No stores are available in your stock-register creation scope.";
+    if (stores.length === 0) return "No active locations are available in your creation scope. Make sure the target location is active.";
     return null;
   }, [storesLoading, storesError, stores.length]);
 
@@ -359,7 +359,7 @@ export function StockRegisterModal({ open, mode, register, stores, storesLoading
                 </div>
               </Section>
 
-              <Section n={2} title="Store Assignment" sub="Registers must belong to a store inside your current creation scope.">
+              <Section n={2} title="Location Assignment" sub="Registers can belong to any active location (store, department, lab, or room) inside your creation scope.">
                 <div className="form-grid cols-2">
                   <Field label="Store" required error={errors.store} span={2} copilotField="store">
                     <ThemedSelect

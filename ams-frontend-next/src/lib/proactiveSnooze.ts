@@ -10,7 +10,7 @@
  *
  * The dispatcher reads `isSnoozed()` to short-circuit; users set snoozes via
  * `snoozeFor(durationMs)` from a button on a proactive card. There's no
- * "permanent off" — even an opt-out has to renew because the underlying
+ * "permanent off", and even an opt-out has to renew because the underlying
  * notifications still need to be visible in the feed; only the *auto-fire*
  * is suppressed.
  */
@@ -102,7 +102,7 @@ export function useProactiveSnooze(userId: string | number | undefined) {
   return { isSnoozed, snoozedUntil, snoozeFor, clearSnooze };
 }
 
-/** Common snooze durations in ms — used by the proactive card's buttons. */
+/** Common snooze durations in ms, used by the proactive card's buttons. */
 export const SNOOZE_DURATIONS = {
   thirtyMinutes: 30 * 60_000,
   oneHour: 60 * 60_000,

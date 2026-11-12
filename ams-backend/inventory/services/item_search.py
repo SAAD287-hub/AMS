@@ -5,7 +5,7 @@ Combines two retrieval signals over the catalog and fuses them with RRF:
   - BM25 lexical via Postgres tsvector (ts_rank_cd)
   - Semantic cosine similarity via pgvector
 
-After fusion, applies HARD filters (tracking_type, category_type) — these
+After fusion, applies HARD filters (tracking_type, category_type); these
 protect the warehouse invariants (an INDIVIDUAL inspection row must never
 link to a QUANTITY-tracked catalog item).
 
@@ -86,7 +86,7 @@ def hybrid_search_items(
     if not query_text.strip():
         return None
 
-    # BM25 side uses a flat token bag — plainto_tsquery handles the splitting.
+    # BM25 side uses a flat token bag, plainto_tsquery handles the splitting.
     bm25_query = ' '.join(
         part
         for part in (query_name, query_code, query_description,
@@ -123,7 +123,7 @@ def _run_sql(*, bm25_query, query_vec, have_semantic, tracking_type,
              min_semantic_score, limit):
     """Execute the fused hybrid query in a single round-trip to Postgres."""
     # tracking_type is a HARD filter (warehouse invariant). category_type is
-    # treated as a soft alignment signal — apply only if provided; the BM25
+    # treated as a soft alignment signal: apply only if provided; the BM25
     # path won't drop a row just because category differs, because the same
     # item code can sit under reorganized category trees.
     tracking_clause_bm25 = ''
@@ -249,7 +249,7 @@ def _run_sql(*, bm25_query, query_vec, have_semantic, tracking_type,
          row_category_type, row_tracking_type, description, specifications,
          acct_unit, rrf_score, bm25_rank, sem_rank) = row
 
-        # Soft category alignment — does not exclude, only annotates the signal.
+        # Soft category alignment: does not exclude, only annotates the signal.
         category_match = (
             category_type is None
             or row_category_type is None

@@ -161,6 +161,8 @@ class StockEntrySerializer(serializers.ModelSerializer):
     from_location_name = serializers.CharField(source='from_location.name', read_only=True)
     to_location_name = serializers.CharField(source='to_location.name', read_only=True)
     issued_to_name = serializers.CharField(source='issued_to.name', read_only=True, allow_null=True)
+    vendor_name = serializers.CharField(source='vendor.name', read_only=True, allow_null=True)
+    vendor_code = serializers.CharField(source='vendor.code', read_only=True, allow_null=True)
     created_by_name = serializers.CharField(source='created_by.username', read_only=True)
     acknowledged_by_name = serializers.CharField(source='acknowledged_by.username', read_only=True, allow_null=True)
     cancelled_by_name = serializers.CharField(source='cancelled_by.username', read_only=True, allow_null=True)
@@ -181,9 +183,10 @@ class StockEntrySerializer(serializers.ModelSerializer):
         fields = (
             'id', 'entry_type', 'entry_number', 'entry_date', 
             'inspection_certificate', 'inspection_certificate_number',
-            'from_location', 'from_location_name', 
+            'from_location', 'from_location_name',
             'to_location', 'to_location_name',
             'issued_to', 'issued_to_name',
+            'vendor', 'vendor_name', 'vendor_code',
             'status', 'remarks', 'purpose', 'items', 'reference_entry',
             'reference_purpose',
             'acknowledged_by', 'acknowledged_by_name', 'acknowledged_at',
@@ -486,6 +489,7 @@ class StockEntrySerializer(serializers.ModelSerializer):
         from_location = attrs.get('from_location', getattr(candidate, 'from_location', None))
         to_location = attrs.get('to_location', getattr(candidate, 'to_location', None))
         issued_to = attrs.get('issued_to', getattr(candidate, 'issued_to', None))
+        vendor = attrs.get('vendor', getattr(candidate, 'vendor', None))
 
         errors = {}
         if entry_type == 'RETURN':
@@ -503,10 +507,12 @@ class StockEntrySerializer(serializers.ModelSerializer):
                 errors['to_location'] = 'Receiving store is required.'
             if issued_to and from_location:
                 errors['issued_to'] = 'Choose either a returning person or a returning location, not both.'
-            if not issued_to and not from_location:
-                errors['from_location'] = 'Returning person or location is required.'
+            if vendor and (issued_to or from_location):
+                errors['vendor'] = 'Vendor receipts cannot also have a returning person or location.'
+            if not vendor and not issued_to and not from_location:
+                errors['from_location'] = 'Vendor, returning person, or returning location is required.'
 
-            is_allocation_return = issued_to or (from_location and not getattr(from_location, 'is_store', False))
+            is_allocation_return = (not vendor) and (issued_to or (from_location and not getattr(from_location, 'is_store', False)))
             if to_location and is_allocation_return:
                 requested_by_item = {}
                 items_data = attrs.get('items')
@@ -597,9 +603,10 @@ class StockEntrySerializer(serializers.ModelSerializer):
         from_location = validated_data.get('from_location')
         to_location = validated_data.get('to_location')
         issued_to = validated_data.get('issued_to')
+        vendor = validated_data.get('vendor')
         if entry_type == 'ISSUE' and (issued_to or (to_location and not to_location.is_store)):
             return 'COMPLETED'
-        if entry_type == 'RECEIPT' and (issued_to or (from_location and not from_location.is_store)):
+        if entry_type == 'RECEIPT' and (vendor or issued_to or (from_location and not from_location.is_store)):
             return 'COMPLETED'
         return 'PENDING_ACK'
 
@@ -622,15 +629,34 @@ class StockEntrySerializer(serializers.ModelSerializer):
             validated_data['inspection_certificate'] = reference_entry.inspection_certificate
 
         from django.db import transaction
+        is_vendor_receipt = (
+            entry_type == 'RECEIPT'
+            and validated_data.get('vendor') is not None
+            and validated_data.get('from_location') is None
+            and to_location is not None
+        )
         with transaction.atomic():
             stock_entry = StockEntry.objects.create(**validated_data)
-            
+
             for item_data in items_data:
                 instances = item_data.pop('instances', [])
                 item_entry = StockEntryItem.objects.create(stock_entry=stock_entry, **item_data)
                 if instances:
                     item_entry.instances.set(instances)
-        
+                elif is_vendor_receipt and item_entry.item.category.get_tracking_type() == TrackingType.INDIVIDUAL:
+                    created_instances = []
+                    for _ in range(item_entry.quantity):
+                        created_instances.append(ItemInstance.objects.create(
+                            item=item_entry.item,
+                            serial_number=None,
+                            current_location=to_location,
+                            authority_store=to_location,
+                            status=InstanceStatus.AVAILABLE,
+                            created_by=stock_entry.created_by,
+                        ))
+                    item_entry.instances.set(created_instances)
+                    item_entry.accepted_instances.set(created_instances)
+
         return stock_entry
 
     def update(self, instance, validated_data):
@@ -696,7 +722,19 @@ class StockEntrySerializer(serializers.ModelSerializer):
         return bool(user and user.is_authenticated and (user.is_superuser or user.has_perm('inventory.edit_stock_entries')))
 
     def get_can_cancel(self, obj):
-        return bool(obj.status == 'PENDING_ACK' and self._user_can_edit_entries())
+        if not self._user_can_edit_entries():
+            return False
+        if obj.status == 'PENDING_ACK':
+            return True
+        if (
+            obj.status == 'COMPLETED'
+            and obj.entry_type == 'RECEIPT'
+            and obj.from_location_id is None
+            and obj.to_location_id is not None
+        ):
+            from ..services.receipt_reversal import can_reverse_receipt
+            return can_reverse_receipt(obj)
+        return False
 
     def get_can_correct(self, obj):
         return bool(self._user_can_edit_entries() and can_start_correction(obj))

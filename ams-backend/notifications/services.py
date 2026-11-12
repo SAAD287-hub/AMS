@@ -328,7 +328,7 @@ def _inspection_notification_metadata(inspection: InspectionCertificate) -> dict
 
 # Map each backend inspection stage to the form_id the frontend registers
 # under inspections/[id]. The proactive dispatcher uses form_id to open the
-# right modal on click — the form is auto-opened on the detail page based on
+# right modal on click, the form is auto-opened on the detail page based on
 # current stage, so the agent only needs to navigate; the form_id helps the
 # agent address it by name when scheduling the follow-up tool call.
 _INSPECTION_STAGE_FORM_IDS = {
@@ -379,7 +379,7 @@ def _with_intent(
     Frontend's notificationEvents.parseNotificationEvent() reads these keys
     from inside metadata first, then from top-level columns (when we add
     those later). For now we put them inside metadata so no migration is
-    needed — see frontend docs in src/lib/notificationEvents.ts.
+    needed, see frontend docs in src/lib/notificationEvents.ts.
     """
     enriched = dict(metadata)
     enriched["suggested_intent"] = suggested_intent
@@ -484,8 +484,8 @@ def notify_inspection_submitted_to_finance_review(inspection: InspectionCertific
         actor=actor,
         metadata=_with_intent(
             _inspection_notification_metadata(inspection),
-            # Finance review is a review step rather than a stage to fill —
-            # the proactive card should offer "review the record", not
+            # Finance review is a review step rather than a stage to fill,
+            # so the proactive card should offer "review the record", not
             # "fill the next stage".
             suggested_intent="review_record",
             intent_target=_inspection_intent_target(inspection),
@@ -505,7 +505,7 @@ def notify_inspection_completed(inspection: InspectionCertificate, actor: User |
         entity_type="inspection",
         entity_id=inspection.id,
         actor=actor,
-        # Completed inspections do NOT carry a proactive intent — there is
+        # Completed inspections do NOT carry a proactive intent, since there is
         # nothing actionable left. They still surface in the notification
         # feed, just without an auto-fire card.
         metadata=_inspection_notification_metadata(inspection),
@@ -535,7 +535,7 @@ def notify_inspection_rejected(inspection: InspectionCertificate, actor: User | 
         metadata=_with_intent(
             _inspection_notification_metadata(inspection),
             # A rejected inspection needs the user to fix the rejected fields
-            # before resubmitting — the agent's correct_form intent maps to
+            # before resubmitting, so the agent's correct_form intent maps to
             # opening the form and re-resolving the disputed values.
             suggested_intent="correct_form",
             intent_target=_inspection_intent_target(inspection),

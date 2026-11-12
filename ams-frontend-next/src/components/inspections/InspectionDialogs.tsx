@@ -779,7 +779,7 @@ export function InspectionModal({
     },
     setValues: applyCopilotValues,
     // Route items.N.item option searches through the hybrid backend endpoint
-    // (pgvector + tsvector + RRF). This is agent-only — human-facing dropdowns
+    // (pgvector + tsvector + RRF). This is agent-only, and human-facing dropdowns
     // continue to use the standard keyword search via ItemViewSet.list.
     searchOptions: request => searchCentralRegisterItemOptions({
       ...request,
@@ -799,7 +799,7 @@ export function InspectionModal({
 
   const title = mode === "create"
     ? "New Inspection Certificate"
-    : `${inspection?.contract_no ?? "Edit"} — ${getInspectionStageDisplayLabel({ stage, status: inspection?.status })}`;
+    : `${inspection?.contract_no ?? "Edit"} - ${getInspectionStageDisplayLabel({ stage, status: inspection?.status })}`;
 
   const imagePreview = previewFile && previewFile.type === "image" ? (
     <div className="doc-preview-overlay" onClick={closePreview}>
@@ -933,7 +933,7 @@ export function InspectionModal({
                         </div>
                         {canEditItems && (
                           <Button type="button" variant="outline" size="xs" className="btn-danger-ghost" onClick={() => removeItem(index)} disabled={items.length <= 1} title="Remove item">
-                            <InspectionIcon d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0l1 12h6l1-12" size={12} />
+                            <InspectionIcon d="M3 6h18 M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6 M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2 M10 11v6 M14 11v6" size={12} />
                           </Button>
                         )}
                       </div>
@@ -1066,7 +1066,7 @@ export function InspectionModal({
               </Section>
             ) : null}
 
-            <Section n={documentsSectionNumber} title="Documents" sub="Attach supporting documents (PDF, images, DOCX — max 20 MB each).">
+            <Section n={documentsSectionNumber} title="Documents" sub="Attach supporting documents (PDF, images, DOCX, max 20 MB each).">
               {inspection?.documents && inspection.documents.length > 0 && (
                 <div className="inspection-docs-list">
                   {inspection.documents.map(document => (

@@ -91,13 +91,24 @@ class LocationViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get', 'post'])
     def standalone(self, request):
         """
-        GET: list standalone, non-store locations for the main Locations page.
+        GET: list organizational top-level locations for the main Locations page.
+        Only University / Department / Building / Other types are returned here;
+        physical spaces (Lab, Room, Office, AV Hall, Auditorium, Junkyard) only
+        appear when drilling into their parent department.
         POST: create a root location if none exists, otherwise create a standalone
         child under the root. Client-supplied parent/is_standalone flags are ignored.
         """
+        ORG_TYPES = {
+            LocationType.UNIVERSITY,
+            LocationType.DEPARTMENT,
+            LocationType.BUILDING,
+            LocationType.OTHER,
+        }
         if request.method == 'GET':
             queryset = self.filter_queryset(
-                self.get_queryset().filter(is_standalone=True, is_store=False)
+                self.get_queryset()
+                    .filter(is_standalone=True, is_store=False)
+                    .filter(location_type__in=ORG_TYPES)
             )
             serializer = self.get_serializer(queryset, many=True)
             return Response(serializer.data)

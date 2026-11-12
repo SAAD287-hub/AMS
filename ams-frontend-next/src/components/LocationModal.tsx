@@ -185,13 +185,26 @@ function toPayload(form: LocationFormState) {
   };
 }
 
+// Only these types can live at the top level of the organization tree.
+// Physical spaces (lab, room, office, etc.) must sit under an org unit.
+const ORGANIZATIONAL_TYPES = new Set(["UNIVERSITY", "DEPARTMENT", "BUILDING", "OTHER"]);
+
 function validateLocationForm(
   form: LocationFormState,
-  options: { blockedReason?: string | null } = {},
+  options: { blockedReason?: string | null; parentIsRoot?: boolean } = {},
 ) {
   const errors: Record<string, string> = {};
   if (!form.name.trim()) errors.name = "Location name is required.";
   if (!form.location_type.trim()) errors.location_type = "Location type is required.";
+  // Physical spaces (Lab, Room, Office, …) cannot live at the top level;
+  // they must be nested under a department / building.
+  if (
+    form.location_type &&
+    !ORGANIZATIONAL_TYPES.has(form.location_type) &&
+    (!form.parent_location || options.parentIsRoot)
+  ) {
+    errors.parent_location = "This location type must be placed under a department or building. Choose a parent other than the root.";
+  }
   if (options.blockedReason) errors._form = options.blockedReason;
   return errors;
 }
@@ -288,7 +301,10 @@ export function LocationModal({ open, mode, location, createContext = "default",
   }, [open, onClose]);
 
   const isEditMode = mode === "edit";
-  const showParentSelector = !isEditMode && createContext === "default";
+  // Show parent selector on create (default context) and on edit for existing
+  // records (except the root, which must stay parentless).
+  const isRootRecord = isEditMode && location?.parent_location == null;
+  const showParentSelector = (!isEditMode && createContext === "default") || (isEditMode && !isRootRecord);
   const isClassificationOnly = !showParentSelector;
   const canCreateMissingMainStore = !isEditMode && createContext === "child" && Boolean(lockedParent?.is_standalone) && !lockedParent?.main_store_id;
   const canConfigureStoreCapability = !form.create_main_store && (createContext === "child" || (isEditMode && Boolean(location?.parent_location) && !location?.is_standalone));
@@ -299,19 +315,48 @@ export function LocationModal({ open, mode, location, createContext = "default",
     : createContext === "child" && !lockedParent && !isEditMode
     ? "A parent location is required before creating a sub-location."
     : null;
+  const selectedParentRecord = parentLocations.find(p => String(p.id) === form.parent_location);
+  const parentIsRoot = selectedParentRecord != null && selectedParentRecord.parent_location == null;
+  const parentValidationError = (touched.has("location_type") || touched.has("parent_location"))
+    && form.location_type
+    && !ORGANIZATIONAL_TYPES.has(form.location_type)
+    && (!form.parent_location || parentIsRoot)
+      ? "This location type must be placed under a department or building. Choose a parent other than the root."
+      : undefined;
   const errors = {
     name: touched.has("name") && !form.name.trim() ? "Location name is required." : undefined,
     location_type: touched.has("location_type") && !form.location_type.trim() ? "Location type is required." : undefined,
+    parent_location: parentValidationError,
   };
   const issueCount = Object.values(errors).filter(Boolean).length;
 
   const canSave = !submitting && !saveBlockedReason;
 
-  const parentSelectOptions = useMemo(() => parentLocations.map(parent => ({
-    value: String(parent.id),
-    label: parent.name,
-    meta: `${parent.code} / ${locationTypeLabel(parent.location_type)}`,
-  })), [parentLocations]);
+  // In edit mode, exclude the record itself and all its descendants to prevent cycles.
+  const forbiddenParentIds = useMemo(() => {
+    if (!location) return new Set<number>();
+    const banned = new Set<number>([location.id]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const p of parentLocations) {
+        if (p.parent_location != null && banned.has(p.parent_location) && !banned.has(p.id)) {
+          banned.add(p.id);
+          grew = true;
+        }
+      }
+    }
+    return banned;
+  }, [location, parentLocations]);
+
+  const parentSelectOptions = useMemo(() => parentLocations
+    // Only standalone locations can host children, exclude self + descendants to avoid cycles.
+    .filter(parent => parent.is_standalone && !forbiddenParentIds.has(parent.id))
+    .map(parent => ({
+      value: String(parent.id),
+      label: parent.name,
+      meta: `${parent.code} / ${locationTypeLabel(parent.location_type)}`,
+    })), [parentLocations, forbiddenParentIds]);
 
   const locationTypeOptions = useMemo(() => form.create_main_store
     ? [{ value: "STORE", label: "Store" }]
@@ -322,13 +367,24 @@ export function LocationModal({ open, mode, location, createContext = "default",
     if (!isEditMode && createContext === "standalone") return "A main store will be created automatically for this location.";
     if (canCreateMissingMainStore) return "This standalone location does not currently have a main store.";
     if (!isEditMode && createContext === "child" && lockedParent) return `Creating sub-location under ${lockedParent.name}.`;
+    if (!isEditMode && createContext === "default") {
+      return form.parent_location
+        ? "This location will be created as a sub-location of the selected parent."
+        : "Leave parent empty to create a top-level department. A main store will be created automatically.";
+    }
+    if (isEditMode && !isRootRecord) {
+      const originalParent = location?.parent_location != null ? String(location.parent_location) : "";
+      if (form.parent_location !== originalParent) {
+        return "Changing the parent will move this location (and its children) under the new parent.";
+      }
+    }
     if (parentError) return `Parent locations failed to load: ${parentError}`;
     if (tagsError) return `Tags failed to load: ${tagsError}`;
     if (parentLoading) return "Loading parent locations…";
     if (tagsLoading) return "Loading tags…";
     if (parentLocations.length === 0) return "No parent locations were returned. Root locations can still be saved without a parent.";
     return null;
-  }, [canCreateMissingMainStore, createContext, isEditMode, lockedParent, parentError, parentLoading, parentLocations.length, tagsError, tagsLoading]);
+  }, [canCreateMissingMainStore, createContext, form.parent_location, isEditMode, isRootRecord, location, lockedParent, parentError, parentLoading, parentLocations.length, tagsError, tagsLoading]);
 
   const set = useCallback((patch: Partial<LocationFormState>) => {
     setForm(prev => ({ ...prev, ...patch }));
@@ -473,12 +529,12 @@ export function LocationModal({ open, mode, location, createContext = "default",
 
   const validateForCopilot = useCallback(() => {
     setTouched(new Set(["name", "location_type"]));
-    const nextErrors = validateLocationForm(form, { blockedReason: saveBlockedReason });
+    const nextErrors = validateLocationForm(form, { blockedReason: saveBlockedReason, parentIsRoot });
     return {
       ok: Object.keys(nextErrors).length === 0,
       errors: nextErrors,
     };
-  }, [form, saveBlockedReason]);
+  }, [form, saveBlockedReason, parentIsRoot]);
 
   const submit = async () => {
     const allTouched = new Set(["name", "location_type"]);
@@ -490,11 +546,11 @@ export function LocationModal({ open, mode, location, createContext = "default",
         ok: false,
         errorType: "validation_error",
         message,
-        fieldErrors: validateLocationForm(form, { blockedReason: saveBlockedReason }),
+        fieldErrors: validateLocationForm(form, { blockedReason: saveBlockedReason, parentIsRoot }),
       };
     }
 
-    const nextErrors = validateLocationForm(form);
+    const nextErrors = validateLocationForm(form, { parentIsRoot });
     if (Object.keys(nextErrors).length > 0) {
       return {
         ok: false,
@@ -516,11 +572,25 @@ export function LocationModal({ open, mode, location, createContext = "default",
           body,
         });
       } else {
-        const createPath = createContext === "standalone"
-          ? "/api/inventory/locations/standalone/"
-          : createContext === "child" && lockedParent
-          ? `/api/inventory/locations/${lockedParent.id}/children/`
-          : "/api/inventory/locations/";
+        // Resolve the correct create endpoint:
+        //   - "standalone" context forces root-attached top-level unit
+        //   - "child" context creates under the locked parent (/children/)
+        //   - "default" (main /locations page): pick based on selected parent
+        //       - no parent chosen → root-attached standalone unit
+        //       - root selected as parent → still a top-level standalone unit
+        //       - a non-root parent chosen → sub-location under that parent
+        const selectedParent = parentLocations.find(p => String(p.id) === form.parent_location);
+        const selectedParentIsRoot = selectedParent != null && selectedParent.parent_location == null;
+        let createPath: string;
+        if (createContext === "standalone") {
+          createPath = "/api/inventory/locations/standalone/";
+        } else if (createContext === "child" && lockedParent) {
+          createPath = `/api/inventory/locations/${lockedParent.id}/children/`;
+        } else if (createContext === "default" && form.parent_location && !selectedParentIsRoot) {
+          createPath = `/api/inventory/locations/${form.parent_location}/children/`;
+        } else {
+          createPath = "/api/inventory/locations/standalone/";
+        }
         saved = await apiFetch<LocationRecord>(createPath, {
           method: "POST",
           body,
@@ -567,10 +637,27 @@ export function LocationModal({ open, mode, location, createContext = "default",
     submit: () => submit(),
   });
 
+  useEffect(() => {
+    if (!submitError) return;
+    const t = window.setTimeout(() => setSubmitError(null), 6000);
+    return () => window.clearTimeout(t);
+  }, [submitError]);
+
   if (!open) return null;
 
   return (
     <div className="modal-backdrop">
+      {submitError && (
+        <div className="form-error-toast" role="alert">
+          <span className="form-error-toast-icon" aria-hidden="true">
+            <Ic d="M12 9v4 M12 17h.01 M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" size={16} />
+          </span>
+          <span className="form-error-toast-text">{submitError}</span>
+          <button type="button" className="form-error-toast-close" onClick={() => setSubmitError(null)} aria-label="Dismiss">
+            <Ic d="M6 6l12 12M6 18L18 6" size={14} />
+          </button>
+        </div>
+      )}
       <div className="modal modal-lg" role="dialog" aria-modal="true" aria-labelledby="location-modal-title">
         <header className="modal-head">
           <div>
@@ -589,23 +676,37 @@ export function LocationModal({ open, mode, location, createContext = "default",
                   {loadStatusMessage}
                 </div>
               )}
-              {submitError && (
-                <div style={{ padding: "10px 14px", background: "var(--danger-weak)", border: "1px solid color-mix(in oklch, var(--danger) 30%, transparent)", borderRadius: "var(--radius)", color: "var(--danger)", fontSize: 13 }}>
-                  {submitError}
+              {!isEditMode && (
+                <div className="stock-entry-help">
+                  <div className="stock-entry-help-title">What is a location?</div>
+                  <div className="stock-entry-help-body">
+                    A location is any physical or organizational place the system needs to track items in. Everything is nested under the single root location (your university).
+                  </div>
+                  <ul className="stock-entry-help-list">
+                    <li>
+                      <strong>Organizational units</strong>: <em>University</em>, <em>Department</em>, <em>Building</em>. These sit at the top of the tree and automatically get a Main Store created for them so they can hold inventory.
+                    </li>
+                    <li>
+                      <strong>Physical spaces (non-store)</strong>: <em>Lab</em>, <em>Room</em>, <em>Office</em>, <em>AV Hall</em>, <em>Auditorium</em>, <em>Junkyard</em>. These must live inside an organizational unit. They can receive allocated stock but don't themselves hold a store register.
+                    </li>
+                    <li>
+                      <strong>External sources (vendor / supplier)</strong>: use type <em>Other</em> to represent an external party you receive stock from. Pick this when adding a vendor so that stock receipts can reference it.
+                    </li>
+                  </ul>
+                  <div className="stock-entry-help-foot">The form will adjust what it asks based on the type you pick.</div>
                 </div>
               )}
-
               <Section n={1} title="Identity">
                 <div className="form-grid cols-2">
                   <Field label="Location name" required error={errors.name} copilotField="name">
-                    <input value={form.name} onChange={e => set({ name: e.target.value })} onBlur={() => setTouched(prev => new Set(prev).add("name"))} placeholder="Enter location name" />
+                    <input value={form.name} onChange={e => set({ name: e.target.value })} onBlur={() => setTouched(prev => new Set(prev).add("name"))} placeholder="Enter location name" spellCheck={false} autoComplete="off" />
                   </Field>
                   <Field label="Location code" hint="Leave blank to generate automatically." copilotField="code">
-                    <input value={form.code} onChange={e => set({ code: e.target.value.toUpperCase() })} placeholder="Enter location code" />
+                    <input value={form.code} onChange={e => set({ code: e.target.value.toUpperCase() })} placeholder="Enter location code" spellCheck={false} autoComplete="off" />
                   </Field>
                   {!isEditMode && createContext === "standalone" && (
                     <Field label="Main store name" hint="Blank uses the location name followed by Main Store." span={2} copilotField="main_store_name">
-                      <input value={form.main_store_name} onChange={e => set({ main_store_name: e.target.value })} placeholder="Optional main store name" />
+                      <input value={form.main_store_name} onChange={e => set({ main_store_name: e.target.value })} placeholder="Optional main store name" spellCheck={false} autoComplete="off" />
                     </Field>
                   )}
                   <Field label="Active state" span={2} copilotField="is_active">
@@ -623,7 +724,7 @@ export function LocationModal({ open, mode, location, createContext = "default",
               >
                 <div className="form-grid cols-2">
                   {showParentSelector && (
-                    <Field label="Parent location" hint="Leave empty for a root location." copilotField="parent_location">
+                    <Field label="Parent location" error={errors.parent_location} hint="Leave empty for a root location." copilotField="parent_location">
                       <ThemedSelect
                         value={form.parent_location}
                         onChange={value => set({ parent_location: value })}
@@ -634,7 +735,14 @@ export function LocationModal({ open, mode, location, createContext = "default",
                       />
                     </Field>
                   )}
-                  <Field label="Location type" required error={errors.location_type} span={isClassificationOnly ? 2 : 1} copilotField="location_type">
+                  <Field
+                    label="Location type"
+                    required
+                    error={errors.location_type}
+                    span={isClassificationOnly ? 2 : 1}
+                    copilotField="location_type"
+                    hint="Store = a place that holds and moves inventory (central store, department store, vendor warehouse). Non-store = a physical space items are used or dispatched to (room, lab, office, auditorium). A main store is auto-created for each standalone unit, so you rarely need to pick 'Store' manually."
+                  >
                     <ThemedSelect
                       value={form.location_type}
                       onChange={value => {
@@ -704,16 +812,16 @@ export function LocationModal({ open, mode, location, createContext = "default",
               <Section n={3} title="Details">
                 <div className="form-grid cols-2">
                   <Field label="Description" span={2} copilotField="description">
-                    <textarea className="textarea-field" rows={4} value={form.description} onChange={e => set({ description: e.target.value })} placeholder="Optional description" />
+                    <textarea className="textarea-field" rows={4} value={form.description} onChange={e => set({ description: e.target.value })} placeholder="Optional description" autoComplete="off" />
                   </Field>
                   <Field label="Address" span={2} copilotField="address">
-                    <textarea className="textarea-field" rows={3} value={form.address} onChange={e => set({ address: e.target.value })} placeholder="Optional address" />
+                    <textarea className="textarea-field" rows={3} value={form.address} onChange={e => set({ address: e.target.value })} placeholder="Optional address" autoComplete="off" spellCheck={false} />
                   </Field>
                   <Field label="In charge" copilotField="in_charge">
-                    <input value={form.in_charge} onChange={e => set({ in_charge: e.target.value })} placeholder="Optional contact name" />
+                    <input value={form.in_charge} onChange={e => set({ in_charge: e.target.value })} placeholder="Optional contact name" spellCheck={false} autoComplete="off" />
                   </Field>
                   <Field label="Contact number" copilotField="contact_number">
-                    <input value={form.contact_number} onChange={e => set({ contact_number: e.target.value })} placeholder="Optional contact number" />
+                    <input type="tel" value={form.contact_number} onChange={e => set({ contact_number: e.target.value })} placeholder="Optional contact number" spellCheck={false} autoComplete="off" />
                   </Field>
                 </div>
               </Section>

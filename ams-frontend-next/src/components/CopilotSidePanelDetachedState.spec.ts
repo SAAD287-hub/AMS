@@ -19,7 +19,7 @@ describe("detached copilot mirrored state", () => {
   it("mirrors loading state from the chat panel without clobbering the composer input", () => {
     expect(source).toMatch(/event\.data\?\.type === "HUMAN_MESSAGE"/);
     // pending may be set through the centralized safety setter OR the raw
-    // setter — both flip the same React state, the safety wrapper just also
+    // setter, and both flip the same React state, the safety wrapper just also
     // arms an auto-unlock timeout.
     expect(source).toMatch(
       /setPendingWithSafety\(true\)|setQuickMessagePending\(true\)/,
@@ -28,13 +28,13 @@ describe("detached copilot mirrored state", () => {
       /event\.data\.isLoading === true[\s\S]*set(?:Pending(?:WithSafety)?|QuickMessagePending)\(true\)/,
     );
     // The HUMAN_MESSAGE handler MUST NOT echo the just-sent text back into
-    // the composer — that would clobber a draft the user is typing next.
+    // the composer, since that would clobber a draft the user is typing next.
     const humanHandler =
       source.match(
         /event\.data\?\.type === "HUMAN_MESSAGE"[\s\S]*?return;\s*\}/,
       )?.[0] ?? "";
     expect(humanHandler).not.toMatch(/setQuickMessage\(text\)/);
-    // The ASSISTANT_MESSAGE handler MUST NOT clear the composer either —
+    // The ASSISTANT_MESSAGE handler MUST NOT clear the composer either,
     // it fires on the first streamed token and the user may already be
     // typing the next message.
     const assistantHandler =
@@ -45,7 +45,7 @@ describe("detached copilot mirrored state", () => {
   });
 
   it("keeps the sent text in the composer as a visual receipt while the run is in flight", () => {
-    // The submit handler must NOT clear the input on submit — the user
+    // The submit handler must NOT clear the input on submit, since the user
     // wants to see "I sent: Hi" while the spinner runs, otherwise the
     // composer looks empty and they wonder if anything was sent.
     const submitStart = source.indexOf("const submitQuickMessage");
@@ -145,7 +145,7 @@ describe("detached copilot mirrored state", () => {
     expect(source).not.toMatch(/actionRequests\?\.length\) return;\s+closeComposer/);
     expect(source).not.toMatch(/copilot-search-overlay--drawer/);
     expect(source).not.toMatch(/copilot-drawer-/);
-    // Launcher pill — new floating rounded design (pulsing dot + uppercase
+    // Launcher pill, new floating rounded design (pulsing dot + uppercase
     // label + mono status text + chevron). Asserts the structural pieces
     // exist; exact pixel/radius values are implementation detail.
     expect(styles).toMatch(/\.copilot-launcher \{/);
@@ -203,7 +203,7 @@ describe("detached copilot mirrored state", () => {
 
   it("guards against stuck pending state with a stop window and safety timeout", () => {
     // After the user clicks stop, straggler "loading=true" events from the
-    // dying agent run must be ignored for a short window — otherwise the
+    // dying agent run must be ignored for a short window, otherwise the
     // composer re-locks immediately and the user is stuck.
     expect(source).toMatch(/stopGuardUntilRef/);
     expect(source).toMatch(/STOP_GUARD_MS/);
@@ -217,7 +217,7 @@ describe("detached copilot mirrored state", () => {
   });
 
   it("keeps the detached textarea always typeable", () => {
-    // readOnly={quickMessagePending} traps users — they cannot start typing
+    // readOnly={quickMessagePending} traps users, since they cannot start typing
     // the next message while the agent is responding. The textarea must be
     // typeable at all times; only the submit/stop button reflects pending.
     expect(source).not.toMatch(/readOnly=\{quickMessagePending\}/);
@@ -225,7 +225,7 @@ describe("detached copilot mirrored state", () => {
 
   it.skipIf(!existsSync(join(process.cwd(), "..", "langchain-agent-chat-openrouter", "apps", "web", "src", "components", "thread", "index.tsx")))("clears the iframe-side queued quick message when stop is requested", () => {
     // If a queued message remains after stop, it auto-submits the moment
-    // stream.isLoading flips back to false — silently starting a new run
+    // stream.isLoading flips back to false, silently starting a new run
     // that re-locks the detached composer.
     const iframeSource = readFileSync(
       join(

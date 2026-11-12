@@ -16,7 +16,7 @@ const TOAST_LIFETIME_MS = 5_000;
 const MAX_STACKED_TOASTS = 3;
 
 interface VisibleToast {
-  /** Stable id from the originating notification — for dedup + react keys. */
+  /** Stable id from the originating notification, used for dedup + react keys. */
   id: number;
   title: string;
   message: string;
@@ -33,7 +33,7 @@ function severityIcon(severity: string) {
 }
 
 /**
- * NotificationToastHost — light-weight in-app toast layer for new
+ * NotificationToastHost is a light-weight in-app toast layer for new
  * notifications. Mounted once near the dashboard root, it:
  *
  *  - Subscribes to the same NotificationBus the proactive dispatcher uses,
@@ -41,19 +41,19 @@ function severityIcon(severity: string) {
  *  - Shows a brief popup (auto-dismiss after TOAST_LIFETIME_MS) with the
  *    notification title and an explicit × close button.
  *  - Skips toasts for events the current user triggered themselves
- *    (same self-action principle as the proactive agent — you know what
+ *    (same self-action principle as the proactive agent, since you know what
  *    you just did).
  *  - Skips toasts when the document is hidden so the user does not return
  *    to a stack of stale toasts; they will still see the items in the
  *    feed when they reopen the panel.
  *
- * The host renders no UI when there are no toasts — zero layout cost.
+ * The host renders no UI when there are no toasts, so there is zero layout cost.
  */
 export function NotificationToastHost() {
   const { user } = useAuth();
   const { feed, markRead } = useNotifications();
   // Ensure the bus is primed from the live feed. Safe to call alongside the
-  // CopilotSidePanel host — primeFromInitialFeed is idempotent and
+  // CopilotSidePanel host, since primeFromInitialFeed is idempotent and
   // .ingest() dedups by event id, so the bus never emits the same event
   // twice even with two ingesters.
   useNotificationBusIngest(feed);
@@ -83,7 +83,7 @@ export function NotificationToastHost() {
 
   const present = useCallback((event: TypedNotificationEvent) => {
     if (typeof document !== "undefined" && document.visibilityState !== "visible") {
-      // Tab is in the background — pushing a toast would just stack stale
+      // Tab is in the background, so pushing a toast would just stack stale
       // popups for when they return. The feed remains authoritative.
       return;
     }
@@ -99,7 +99,7 @@ export function NotificationToastHost() {
 
     setToasts(prev => {
       if (prev.some(toast => toast.id === id)) {
-        // Already showing this exact event (e.g., bus replay) — skip.
+        // Already showing this exact event (e.g., bus replay), so skip.
         clearTimeout(timer);
         return prev;
       }

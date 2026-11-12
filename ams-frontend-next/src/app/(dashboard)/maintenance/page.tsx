@@ -605,11 +605,17 @@ export default function MaintenancePage() {
                 </button>
               ))}
             </div>
-            <div className="search-input">
+            <label className="search-input">
               <Ic d={<><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></>} size={14} />
-              <input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search maintenance records..." />
-              {search ? <button type="button" className="clear-search" onClick={() => setSearch("")}>x</button> : null}
-            </div>
+              <input
+                value={search}
+                onChange={event => setSearch(event.target.value)}
+                placeholder="Search maintenance records..."
+                onClick={e => { if (!e.currentTarget.value) e.currentTarget.setSelectionRange(0, 0); }}
+                onFocus={e => { if (!e.currentTarget.value) e.currentTarget.setSelectionRange(0, 0); }}
+              />
+              {search ? <button type="button" className="clear-search" onClick={e => { e.preventDefault(); setSearch(""); }}>x</button> : null}
+            </label>
           </div>
           <div className="filter-bar-right">
             <ThemedSelect value={targetFilter} options={enumOptions(["INSTANCE", "BATCH"], "All targets")} onChange={setTargetFilter} size="compact" ariaLabel="Filter by target type" />
@@ -688,7 +694,7 @@ export default function MaintenancePage() {
               </table>
             </div>
             <ListPagination
-              summary={activeCount === 0 ? `Showing 0 of ${totalCount} ${currentLabel}` : `Showing ${pageStart}-${pageEnd} of ${activeCount} filtered ${currentLabel}`}
+              summary={activeCount === 0 ? `No ${currentLabel}` : activeCount === 1 ? `1 ${currentLabel}` : pageStart === 1 && pageEnd === activeCount ? `All ${activeCount} ${currentLabel}` : `Showing ${pageStart}–${pageEnd} of ${activeCount} ${currentLabel}`}
               page={page}
               totalPages={totalPages}
               onPrev={() => setPage(current => Math.max(1, current - 1))}
@@ -749,7 +755,7 @@ export default function MaintenancePage() {
               </table>
             </div>
             <ListPagination
-              summary={activeCount === 0 ? `Showing 0 of ${totalCount} ${currentLabel}` : `Showing ${pageStart}-${pageEnd} of ${activeCount} filtered ${currentLabel}`}
+              summary={activeCount === 0 ? `No ${currentLabel}` : activeCount === 1 ? `1 ${currentLabel}` : pageStart === 1 && pageEnd === activeCount ? `All ${activeCount} ${currentLabel}` : `Showing ${pageStart}–${pageEnd} of ${activeCount} ${currentLabel}`}
               page={page}
               totalPages={totalPages}
               onPrev={() => setPage(current => Math.max(1, current - 1))}
@@ -802,7 +808,7 @@ export default function MaintenancePage() {
               </table>
             </div>
             <ListPagination
-              summary={activeCount === 0 ? `Showing 0 of ${totalCount} ${currentLabel}` : `Showing ${pageStart}-${pageEnd} of ${activeCount} filtered ${currentLabel}`}
+              summary={activeCount === 0 ? `No ${currentLabel}` : activeCount === 1 ? `1 ${currentLabel}` : pageStart === 1 && pageEnd === activeCount ? `All ${activeCount} ${currentLabel}` : `Showing ${pageStart}–${pageEnd} of ${activeCount} ${currentLabel}`}
               page={page}
               totalPages={totalPages}
               onPrev={() => setPage(current => Math.max(1, current - 1))}
