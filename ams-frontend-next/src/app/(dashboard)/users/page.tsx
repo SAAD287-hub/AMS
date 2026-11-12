@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useCallback, useLayoutEffect, useRef } from "react";
+import { memo, useState, useMemo, useEffect, useCallback, useLayoutEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Topbar } from "@/components/Topbar";
@@ -368,6 +368,11 @@ export default function UsersPage() {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    const handle = setTimeout(() => setDebouncedSearch(search), 250);
+    return () => clearTimeout(handle);
+  }, [search]);
   const [tierFilter, setTierFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [density, setDensity] = useState("balanced");
@@ -537,9 +542,26 @@ export default function UsersPage() {
     }
   }, [busyAction, clearActionError, loadUsers, removeUserFromList]);
 
+  // Stable per-row dispatchers so memoized UserRow / UserCard can skip
+  // re-renders across debounced search updates. Behaviour matches the former
+  // inline arrows: guard on permission bits before invoking the handler.
+  const handleRowEdit = useCallback((u: User) => {
+    if (!canChangeUser) return;
+    setAddOpen(false);
+    setEditUser(u);
+  }, [canChangeUser]);
+  const handleRowToggleActive = useCallback((u: User) => {
+    if (!canChangeUser) return;
+    handleToggleActive(u);
+  }, [canChangeUser, handleToggleActive]);
+  const handleRowDelete = useCallback((u: User) => {
+    if (!canDeleteUser) return;
+    handleDelete(u);
+  }, [canDeleteUser, handleDelete]);
+
   // PRESERVED: filtering logic matching backend field names
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = debouncedSearch.trim().toLowerCase();
     return allUsers.filter((u: User) => {
       if (q) {
         const hay = `${u.first_name} ${u.last_name} ${u.username} ${u.email} ${u.employee_id}`.toLowerCase();
@@ -550,7 +572,7 @@ export default function UsersPage() {
       if (statusFilter === "inactive" && u.is_active) return false;
       return true;
     });
-  }, [allUsers, search, tierFilter, statusFilter]);
+  }, [allUsers, debouncedSearch, tierFilter, statusFilter]);
 
   const {
     page,
@@ -559,7 +581,7 @@ export default function UsersPage() {
     pageStart,
     pageEnd,
     setPage,
-  } = useClientPagination(filtered, USERS_PAGE_SIZE, [search, tierFilter, statusFilter]);
+  } = useClientPagination(filtered, USERS_PAGE_SIZE, [debouncedSearch, tierFilter, statusFilter]);
 
   const createSetupIssues = useMemo(() => {
     if (!canAddUser || createSetup.loading) return [];
@@ -769,9 +791,9 @@ export default function UsersPage() {
                     pageBusy={pageBusy}
                     toggleBusy={busyAction?.kind === "toggle" && busyAction.userId === u.id}
                     deleteBusy={busyAction?.kind === "delete" && busyAction.userId === u.id}
-                    onEdit={() => { if (canChangeUser) { setAddOpen(false); setEditUser(u); } }}
-                    onToggleActive={() => { if (canChangeUser) { handleToggleActive(u); } }}
-                    onDelete={() => { if (canDeleteUser) { handleDelete(u); } }}
+                    onEdit={handleRowEdit}
+                    onToggleActive={handleRowToggleActive}
+                    onDelete={handleRowDelete}
                     canChangeUser={canChangeUser}
                     canDeleteUser={canDeleteUser}
                   />
@@ -796,9 +818,9 @@ export default function UsersPage() {
                   pageBusy={pageBusy}
                   toggleBusy={busyAction?.kind === "toggle" && busyAction.userId === u.id}
                   deleteBusy={busyAction?.kind === "delete" && busyAction.userId === u.id}
-                  onEdit={() => { if (canChangeUser) { setAddOpen(false); setEditUser(u); } }}
-                  onToggleActive={() => { if (canChangeUser) { handleToggleActive(u); } }}
-                  onDelete={() => { if (canDeleteUser) { handleDelete(u); } }}
+                  onEdit={handleRowEdit}
+                  onToggleActive={handleRowToggleActive}
+                  onDelete={handleRowDelete}
                   canChangeUser={canChangeUser}
                   canDeleteUser={canDeleteUser}
                 />
@@ -822,7 +844,7 @@ export default function UsersPage() {
 
 // ── Table row ─────────────────────────────────────────────────────────────────
 
-function UserRow({
+const UserRow = memo(function UserRow({
   u,
   pageBusy,
   toggleBusy,
@@ -837,12 +859,15 @@ function UserRow({
   pageBusy: boolean;
   toggleBusy: boolean;
   deleteBusy: boolean;
-  onEdit: () => void;
-  onToggleActive: () => void;
-  onDelete: () => void;
+  onEdit: (u: User) => void;
+  onToggleActive: (u: User) => void;
+  onDelete: (u: User) => void;
   canChangeUser: boolean;
   canDeleteUser: boolean;
 }) {
+  const handleEdit = useCallback(() => onEdit(u), [onEdit, u]);
+  const handleToggleActive = useCallback(() => onToggleActive(u), [onToggleActive, u]);
+  const handleDelete = useCallback(() => onDelete(u), [onDelete, u]);
   return (
     <tr>
       <td className="col-user">
@@ -875,9 +900,9 @@ function UserRow({
       <td><StatusPill active={u.is_active} /></td>
       <td className="col-actions">
         <RowActions
-          onEdit={onEdit}
-          onToggleActive={onToggleActive}
-          onDelete={onDelete}
+          onEdit={handleEdit}
+          onToggleActive={handleToggleActive}
+          onDelete={handleDelete}
           canChange={canChangeUser}
           canDelete={canDeleteUser}
           active={u.is_active}
@@ -888,11 +913,11 @@ function UserRow({
       </td>
     </tr>
   );
-}
+});
 
 // ── Grid card ─────────────────────────────────────────────────────────────────
 
-function UserCard({
+const UserCard = memo(function UserCard({
   u,
   pageBusy,
   toggleBusy,
@@ -907,12 +932,15 @@ function UserCard({
   pageBusy: boolean;
   toggleBusy: boolean;
   deleteBusy: boolean;
-  onEdit: () => void;
-  onToggleActive: () => void;
-  onDelete: () => void;
+  onEdit: (u: User) => void;
+  onToggleActive: (u: User) => void;
+  onDelete: (u: User) => void;
   canChangeUser: boolean;
   canDeleteUser: boolean;
 }) {
+  const handleEdit = useCallback(() => onEdit(u), [onEdit, u]);
+  const handleToggleActive = useCallback(() => onToggleActive(u), [onToggleActive, u]);
+  const handleDelete = useCallback(() => onDelete(u), [onDelete, u]);
   return (
     <div className="user-card">
       <div className="user-card-head">
@@ -936,9 +964,9 @@ function UserCard({
           <div className="user-card-last mono">{relTime(u.last_login)}</div>
         </div>
         <RowActions
-          onEdit={onEdit}
-          onToggleActive={onToggleActive}
-          onDelete={onDelete}
+          onEdit={handleEdit}
+          onToggleActive={handleToggleActive}
+          onDelete={handleDelete}
           canChange={canChangeUser}
           canDelete={canDeleteUser}
           active={u.is_active}
@@ -949,4 +977,4 @@ function UserCard({
       </div>
     </div>
   );
-}
+});

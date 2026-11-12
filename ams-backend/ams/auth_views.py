@@ -14,8 +14,8 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 
 class LoginRateThrottle(AnonRateThrottle):
-    """5 login attempts per minute per IP to limit brute-force."""
-    rate = '5/minute'
+    """Login attempts per IP to limit brute-force. Rate from DEFAULT_THROTTLE_RATES['login']."""
+    scope = 'login'
 
 ACCESS_COOKIE = 'ams_access'
 REFRESH_COOKIE = 'ams_refresh'

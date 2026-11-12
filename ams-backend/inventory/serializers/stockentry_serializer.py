@@ -198,11 +198,18 @@ class StockEntrySerializer(serializers.ModelSerializer):
         )
         read_only_fields = ('entry_number', 'created_by', 'created_at', 'acknowledged_by', 'acknowledged_at', 'cancelled_by', 'cancelled_at')
 
+    def _delete_blockers(self, obj):
+        # Cache per object: can_delete + delete_blockers would otherwise run
+        # the full dependency scan (~10 queries) twice per entry.
+        if not hasattr(obj, '_cached_delete_blockers'):
+            obj._cached_delete_blockers = get_delete_blockers(obj)
+        return obj._cached_delete_blockers
+
     def get_delete_blockers(self, obj):
-        return get_delete_blockers(obj)
+        return self._delete_blockers(obj)
 
     def get_can_delete(self, obj):
-        return not self.get_delete_blockers(obj)
+        return not self._delete_blockers(obj)
 
     def _should_auto_split_quantity_issue_item(self, entry_type, from_location, item_data):
         if entry_type != 'ISSUE' or not from_location:

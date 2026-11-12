@@ -124,6 +124,13 @@ export function LocationScopePicker({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  // Defer tree-walk filtering so each keystroke is cheap on deeply-nested
+  // location trees. The input stays bound to `query` for immediate feedback.
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  useEffect(() => {
+    const handle = setTimeout(() => setDebouncedQuery(query), 200);
+    return () => clearTimeout(handle);
+  }, [query]);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -220,7 +227,7 @@ export function LocationScopePicker({
   }, [open]);
 
   const matchesQuery = (location: AssignableLocation) => {
-    const q = query.trim().toLowerCase();
+    const q = debouncedQuery.trim().toLowerCase();
     if (!q) return true;
     return (
       location.name.toLowerCase().includes(q) ||
@@ -261,7 +268,7 @@ export function LocationScopePicker({
     .map(standalone => {
       const children = descendantsByStandalone.get(standalone.id) ?? [];
       const expanded = selectedStandaloneIds.includes(standalone.id);
-      const q = query.trim();
+      const q = debouncedQuery.trim();
       const visibleChildren = expanded
         ? children.filter(child => !q || matchesQuery(standalone) || matchesQuery(child))
         : [];

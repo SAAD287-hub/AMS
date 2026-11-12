@@ -45,6 +45,11 @@ export default function DigitalRegistersPage() {
   const [fetchError, setFetchError] = useState<string | null>(null);
 
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    const handle = setTimeout(() => setDebouncedSearch(search), 250);
+    return () => clearTimeout(handle);
+  }, [search]);
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "closed">("all");
   const [density, setDensity] = useState<DensityMode>("balanced");
 
@@ -73,7 +78,7 @@ export default function DigitalRegistersPage() {
   }, [capsLoading, canView, load, router]);
 
   const filtered = useMemo(() => {
-    const query = search.trim().toLowerCase();
+    const query = debouncedSearch.trim().toLowerCase();
     return registers.filter(register => {
       if (statusFilter === "active" && !register.is_active) return false;
       if (statusFilter === "closed" && register.is_active) return false;
@@ -88,7 +93,7 @@ export default function DigitalRegistersPage() {
         .toLowerCase();
       return haystack.includes(query);
     });
-  }, [registers, search, statusFilter]);
+  }, [registers, debouncedSearch, statusFilter]);
 
   const grouped = useMemo(() => {
     const buckets = new Map<string, { department: Department; items: StockRegister[] }>();

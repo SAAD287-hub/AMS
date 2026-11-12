@@ -1,9 +1,57 @@
 from rest_framework import viewsets, permissions, filters
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle, UserRateThrottle
 from rest_framework.views import APIView
 from django.contrib.auth.models import User, Permission, Group
 from django.db.models import Count, Prefetch
 from django.http import QueryDict
+
+
+class _RegisterRateThrottle(ScopedRateThrottle):
+    """Throttle user-creation POSTs. Rate from DEFAULT_THROTTLE_RATES['register']."""
+    def allow_request(self, request, view):
+        self.scope = 'register'
+        self.rate = self.get_rate()
+        self.num_requests, self.duration = self.parse_rate(self.rate)
+        return super(ScopedRateThrottle, self).allow_request(request, view)
+
+
+class _PasswordChangeRateThrottle(UserRateThrottle):
+    """Throttle only when the request is actually changing the password."""
+    scope = 'password_change'
+
+    def allow_request(self, request, view):
+        data = getattr(request, 'data', None)
+        if not data:
+            return True
+        try:
+            pw = data.get('password')
+        except AttributeError:
+            return True
+        if not pw:
+            return True
+        return super().allow_request(request, view)
+
+
+class _AvatarUploadRateThrottle(UserRateThrottle):
+    """Throttle only when the request is actually uploading an avatar file."""
+    scope = 'avatar_upload'
+
+    def allow_request(self, request, view):
+        data = getattr(request, 'data', None)
+        if not data:
+            return True
+        try:
+            av = data.get('avatar')
+        except AttributeError:
+            return True
+        # empty string / None means "clear", not an upload: skip throttling
+        if av in (None, ''):
+            return True
+        # if it's just a string URL (not a file), skip too
+        if isinstance(av, str):
+            return True
+        return super().allow_request(request, view)
 
 from .models import UserProfile
 from .permissions import (
@@ -135,6 +183,15 @@ class UserViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         return _visible_users_queryset(self.request.user)
+
+    def get_throttles(self):
+        throttles = super().get_throttles()
+        if self.action == 'create':
+            throttles.append(_RegisterRateThrottle())
+        if self.action in {'update', 'partial_update'}:
+            throttles.append(_PasswordChangeRateThrottle())
+            throttles.append(_AvatarUploadRateThrottle())
+        return throttles
 
     def partial_update(self, request, *args, **kwargs):
         """Override to sanitize input for non-admin self-edits.

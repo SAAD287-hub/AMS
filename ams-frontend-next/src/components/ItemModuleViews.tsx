@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ListPagination } from "@/components/ListPagination";
 import { MultiSelectFilter, type MultiSelectFilterOption } from "@/components/MultiSelectFilter";
@@ -1241,6 +1241,11 @@ export function ItemListView() {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    const handle = setTimeout(() => setDebouncedSearch(search), 250);
+    return () => clearTimeout(handle);
+  }, [search]);
   const [filterKey, setFilterKey] = useState<WorkspaceFilterKey>(() => parseItemsListSearch(new URLSearchParams(searchParams.toString())).filterKey);
   const [alertFocus, setAlertFocus] = useState<ItemsAlertFocus | null>(() => parseItemsListSearch(new URLSearchParams(searchParams.toString())).alertFocus);
   const [modalOpen, setModalOpen] = useState(false);
@@ -1341,20 +1346,31 @@ export function ItemListView() {
     router.replace(query ? `/items?${query}` : "/items", { scroll: false });
   }, [router, searchParams]);
 
+  // Precompute a lowercase haystack per item so each keystroke performs a
+  // single `.includes` instead of rebuilding + lowercasing 8 fields per row.
+  // Same field set and join order as before to preserve match semantics.
+  const itemHaystacks = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const item of items) {
+      map.set(item.id, [
+        item.name,
+        item.code,
+        item.category_display ?? "",
+        item.category_type ?? "",
+        item.tracking_type ?? "",
+        item.acct_unit ?? "",
+        item.description ?? "",
+        item.specifications ?? "",
+      ].join(" ").toLowerCase());
+    }
+    return map;
+  }, [items]);
+
   const filteredItems = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = debouncedSearch.trim().toLowerCase();
     return items.filter(item => {
       if (q) {
-        const hay = [
-          item.name,
-          item.code,
-          item.category_display ?? "",
-          item.category_type ?? "",
-          item.tracking_type ?? "",
-          item.acct_unit ?? "",
-          item.description ?? "",
-          item.specifications ?? "",
-        ].join(" ").toLowerCase();
+        const hay = itemHaystacks.get(item.id) ?? "";
         if (!hay.includes(q)) return false;
       }
       if (filterKey === "individual" && item.tracking_type !== "INDIVIDUAL") return false;
@@ -1363,7 +1379,7 @@ export function ItemListView() {
       if (filterKey === "out" && toNumber(item.total_quantity) > 0) return false;
       return true;
     });
-  }, [filterKey, items, search]);
+  }, [filterKey, items, debouncedSearch, itemHaystacks]);
 
   const {
     page,
@@ -1372,7 +1388,7 @@ export function ItemListView() {
     pageStart,
     pageEnd,
     setPage,
-  } = useClientPagination(filteredItems, ITEMS_PAGE_SIZE, [search, filterKey]);
+  } = useClientPagination(filteredItems, ITEMS_PAGE_SIZE, [debouncedSearch, filterKey]);
 
   const effectiveScopeTokens = selectedScopeTokens.length ? selectedScopeTokens : defaultScopeTokens;
 
@@ -1432,7 +1448,7 @@ export function ItemListView() {
     total: items.length,
     filteredTotal: filteredItems.length,
     filters: {
-      search: search || null,
+      search: debouncedSearch || null,
       filter_key: filterKey,
       scope_tokens: effectiveScopeTokens,
     },
@@ -1466,7 +1482,7 @@ export function ItemListView() {
     items.length,
     filteredItems.length,
     pagedItems,
-    search,
+    debouncedSearch,
     filterKey,
     effectiveScopeTokens,
     getItemOpenHref,
@@ -1527,10 +1543,15 @@ export function ItemListView() {
     return () => window.removeEventListener(SAME_PAGE_OPEN_EVENT, onOpen);
   }, [canManageItems, openCreateModal]);
 
-  const openEditModal = (item: ItemRecord) => {
+  const openEditModal = useCallback((item: ItemRecord) => {
     setEditingItem(item);
     setModalOpen(true);
-  };
+  }, []);
+
+  // Stable navigator for the memoized row so it doesn't rerender per keystroke.
+  const handleRowOpen = useCallback((href: string) => {
+    router.push(href);
+  }, [router]);
 
   const closeModal = () => {
     setModalOpen(false);
@@ -1549,7 +1570,7 @@ export function ItemListView() {
     if (!refreshed) setActionError("Item saved, but the list could not be refreshed. Reload to resync the list.");
   };
 
-  const handleDelete = async (item: ItemRecord) => {
+  const handleDelete = useCallback(async (item: ItemRecord) => {
     if (!canDeleteItems || busyAction) return;
     if (item.can_delete === false) {
       setActionError(item.delete_blockers?.join(" ") || "This item cannot be deleted because it is linked to existing records.");
@@ -1570,7 +1591,7 @@ export function ItemListView() {
     } finally {
       setBusyAction(null);
     }
-  };
+  }, [canDeleteItems, busyAction, loadItems]);
 
   const pageBusy = busyAction !== null;
   const deleteBusyItemId = busyAction?.kind === "delete" ? busyAction.itemId : null;
@@ -1764,9 +1785,9 @@ export function ItemListView() {
                       openHref={openHref}
                       openLabel={alertFocusConfig?.openLabel ?? "Open"}
                       openTitle={alertFocusConfig?.openTitle ?? "Open item workspace"}
-                      onOpen={() => router.push(openHref)}
-                      onEdit={() => openEditModal(item)}
-                      onDelete={() => handleDelete(item)}
+                      onOpen={handleRowOpen}
+                      onEdit={openEditModal}
+                      onDelete={handleDelete}
                     />
                   );
                 })
@@ -1789,7 +1810,7 @@ export function ItemListView() {
   );
 }
 
-function ItemListTableRow({
+const ItemListTableRow = memo(function ItemListTableRow({
   item,
   categoryPath,
   canEdit,
@@ -1812,17 +1833,20 @@ function ItemListTableRow({
   openHref: string;
   openLabel: string;
   openTitle: string;
-  onOpen: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
+  onOpen: (href: string) => void;
+  onEdit: (item: ItemRecord) => void;
+  onDelete: (item: ItemRecord) => void;
 }) {
+  const handleOpen = useCallback(() => onOpen(openHref), [onOpen, openHref]);
+  const handleEdit = useCallback(() => onEdit(item), [onEdit, item]);
+  const handleDelete = useCallback(() => onDelete(item), [onDelete, item]);
   const totalQuantity = toNumber(item.total_quantity);
   const standaloneLocationCount = toNumber(item.standalone_location_count);
   const statusTone = itemStatusTone(item);
   const lastUpdated = item.updated_at ?? item.created_at;
 
   return (
-    <tr className="clickable-table-row" onClick={onOpen}>
+    <tr className="clickable-table-row" onClick={handleOpen}>
       <td className={`col-user ${workspaceStyles.itemsListItemCell}`}>
         <div className="user-cell">
           <span className={workspaceStyles.itemTableIcon} data-tracking={workspaceTrackingTone(item.tracking_type)}>
@@ -1860,13 +1884,13 @@ function ItemListTableRow({
           canDelete={canDelete}
           pageBusy={pageBusy}
           deleteBusy={deleteBusy}
-          onEdit={onEdit}
-          onDelete={onDelete}
+          onEdit={handleEdit}
+          onDelete={handleDelete}
         />
       </td>
     </tr>
   );
-}
+});
 
 export function ItemWorkspaceDetailView({ itemId }: { itemId: string }) {
   const router = useRouter();

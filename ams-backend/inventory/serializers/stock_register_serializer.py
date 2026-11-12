@@ -23,6 +23,9 @@ class StockRegisterSerializer(serializers.ModelSerializer):
         return not self.get_delete_blockers(obj)
 
     def get_last_page_number(self, obj):
+        annotated = getattr(obj, '_last_page_number', None)
+        if annotated is not None:
+            return annotated or 0
         agg = StockEntryItem.objects.filter(stock_register=obj).aggregate(mx=models.Max('page_number'))
         return agg['mx'] or 0
 

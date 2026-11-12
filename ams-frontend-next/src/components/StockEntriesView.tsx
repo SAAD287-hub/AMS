@@ -1693,6 +1693,11 @@ export function StockEntriesView() {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [search, setSearch] = useState(() => searchParams.get("search") ?? "");
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
+  useEffect(() => {
+    const handle = setTimeout(() => setDebouncedSearch(search), 250);
+    return () => clearTimeout(handle);
+  }, [search]);
   const [statusFilter, setStatusFilter] = useState(() => {
     const statusParam = searchParams.get("status");
     return statusParam && ["DRAFT", "PENDING_ACK", "COMPLETED", "CANCELLED", "VOIDED"].includes(statusParam) ? statusParam : "all";
@@ -1744,7 +1749,7 @@ export function StockEntriesView() {
     setFetchError(null);
     const generation = ++entriesRequestRef.current;
     try {
-      const data = await loadMovementPage<StockEntryRecord>({ page, search, status: statusFilter, store: storeScope });
+      const data = await loadMovementPage<StockEntryRecord>({ page, search: debouncedSearch, status: statusFilter, store: storeScope });
       if (generation !== entriesRequestRef.current) return true;
       setEntries(data.results);
       setEntryCount(data.count);
@@ -1755,7 +1760,7 @@ export function StockEntriesView() {
     } finally {
       if (generation === entriesRequestRef.current) setIsLoading(false);
     }
-  }, [page, search, statusFilter, storeScope]);
+  }, [page, debouncedSearch, statusFilter, storeScope]);
 
   const loadScopeStores = useCallback(async () => {
     try {

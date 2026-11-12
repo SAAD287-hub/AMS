@@ -232,6 +232,15 @@ class InspectionViewSet(ScopedViewSetMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
+        # The list serializer (InspectionCertificateListSerializer) does not
+        # read items/documents/stock_entries; drop the heavy prefetches on
+        # list to avoid loading and joining all nested rows per page.
+        if getattr(self, 'action', None) == 'list':
+            queryset = queryset.prefetch_related(None).select_related(
+                'department', 'initiated_by', 'stock_filled_by',
+                'central_store_filled_by', 'finance_reviewed_by',
+                'revision_requested_by', 'rejected_by',
+            )
         user = self.request.user
         raw_location_ids = self.request.query_params.getlist('location') or self.request.query_params.getlist('location_id')
         selected_ids = []

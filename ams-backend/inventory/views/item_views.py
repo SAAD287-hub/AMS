@@ -2,6 +2,7 @@ from django.db.models import Prefetch
 from rest_framework import viewsets, permissions, filters, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from collections import defaultdict
 from ..models.depreciation_model import AssetValueAdjustment, DepreciationEntry, FixedAssetRegisterEntry
 from ..models.item_model import Item
@@ -216,8 +217,11 @@ class ItemViewSet(viewsets.ModelViewSet):
         # is the right gate. The agent-only call surface still requires the
         # signed-in user to have at least view_items.
         permission_classes=[permissions.IsAuthenticated, ItemCopilotSearchPermission],
+        throttle_classes=[ScopedRateThrottle],
     )
     def copilot_search(self, request):
+        # ScopedRateThrottle reads this attribute to pick the rate key.
+        self.throttle_scope = 'item_search'
         payload = request.data or {}
 
         if not item_search.is_supported():

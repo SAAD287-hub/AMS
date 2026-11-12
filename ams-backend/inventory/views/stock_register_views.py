@@ -1,10 +1,12 @@
-from django.db.models import Q
+from django.db.models import Max, Prefetch, Q
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from rest_framework import viewsets, permissions, filters, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from ..models.correction_model import StockCorrectionRequest
 from ..models.stock_register_model import StockRegister
-from ..models.stockentry_model import StockEntry
+from ..models.stockentry_model import StockEntry, StockEntryItem
 from ..serializers.stock_register_serializer import StockRegisterSerializer
 from ..serializers.stockentry_serializer import StockEntrySerializer
 from ..permissions import StockRegisterPermission
@@ -24,7 +26,16 @@ class StockRegisterViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        queryset = StockRegister.objects.select_related('store', 'created_by', 'closed_by').all()
+        queryset = StockRegister.objects.select_related(
+            'store',
+            'store__parent_location',
+            'store__parent_location__parent_location',
+            'store__parent_location__parent_location__parent_location',
+            'created_by',
+            'closed_by',
+        ).annotate(
+            _last_page_number=Coalesce(Max('source_items__page_number'), 0),
+        ).all()
 
         # Scope to accessible locations
         if not user.is_superuser and not user.groups.filter(name='System Admin').exists():
@@ -79,6 +90,13 @@ class StockRegisterViewSet(viewsets.ModelViewSet):
         acknowledgment side (items.ack_stock_register).
         """
         register = self.get_object()  # enforces scope via get_queryset
+        correction_requests_qs = StockCorrectionRequest.objects.prefetch_related(
+            Prefetch(
+                'generated_entries',
+                queryset=StockEntry.objects.order_by('id'),
+                to_attr='prefetched_generated_entries',
+            )
+        ).order_by('-requested_at')
         qs = (
             StockEntry.objects
             .filter(
@@ -86,19 +104,52 @@ class StockRegisterViewSet(viewsets.ModelViewSet):
                 | Q(items__ack_stock_register_id=register.pk)
             )
             .distinct()
-            .select_related('vendor', 'from_location', 'to_location', 'created_by')
-            .prefetch_related('items')
+            .select_related(
+                'vendor', 'from_location', 'to_location', 'created_by',
+                'issued_to', 'acknowledged_by', 'cancelled_by',
+                'reference_entry', 'inspection_certificate',
+            )
+            .prefetch_related(
+                Prefetch(
+                    'items',
+                    queryset=StockEntryItem.objects.select_related(
+                        'item', 'batch', 'stock_register', 'ack_stock_register',
+                    ).prefetch_related('instances', 'accepted_instances'),
+                ),
+                Prefetch(
+                    'correction_requests',
+                    queryset=correction_requests_qs,
+                    to_attr='prefetched_correction_requests',
+                ),
+                Prefetch(
+                    'reference_entry__correction_requests',
+                    queryset=correction_requests_qs,
+                    to_attr='prefetched_correction_requests',
+                ),
+                Prefetch(
+                    'correction_entries',
+                    queryset=StockEntry.objects.order_by('id'),
+                    to_attr='prefetched_correction_entries',
+                ),
+                Prefetch(
+                    'correction_entries',
+                    queryset=StockEntry.objects.filter(reference_purpose='REPLACEMENT').order_by('-created_at'),
+                    to_attr='prefetched_replacement_entries',
+                ),
+            )
             .order_by('-created_at')
         )
+        from .stockentry_views import StockEntryViewSet
         page = self.paginate_queryset(qs)
         if page is not None:
-            serializer = StockEntrySerializer(
-                page, many=True, context=self.get_serializer_context()
-            )
+            context = self.get_serializer_context()
+            StockEntryViewSet._add_source_inspection_context(self, context, page)
+            serializer = StockEntrySerializer(page, many=True, context=context)
             return self.get_paginated_response(serializer.data)
-        serializer = StockEntrySerializer(
-            qs, many=True, context=self.get_serializer_context()
-        )
+        entries = list(qs)
+        context = self.get_serializer_context()
+        StockEntryViewSet._add_source_inspection_context(self, context, entries)
+        serializer = StockEntrySerializer(entries, many=True, context=context)
         return Response(serializer.data)
 
     @action(detail=True, methods=['post'])

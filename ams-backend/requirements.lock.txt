@@ -191,7 +191,7 @@ numpy==2.5.4
     # via
     #   langchain-community
     #   pgvector
-oauthlib==4.0.0
+oauthlib==4.0.1
     # via
     #   -r requirements.txt
     #   requests-oauthlib

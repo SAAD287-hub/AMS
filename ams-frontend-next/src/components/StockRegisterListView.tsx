@@ -412,6 +412,11 @@ export function StockRegisterListView() {
   const [storesLoading, setStoresLoading] = useState(true);
   const [storesError, setStoresError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    const handle = setTimeout(() => setDebouncedSearch(search), 250);
+    return () => clearTimeout(handle);
+  }, [search]);
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [density, setDensity] = useState<"compact" | "balanced" | "comfortable">("balanced");
@@ -532,8 +537,8 @@ export function StockRegisterListView() {
   }, [busyAction, clearActionError, loadRegisters, statusModal]);
 
   const filteredRegisters = useMemo(
-    () => filterStockRegisters(registers, { search, typeFilter, statusFilter }),
-    [registers, search, typeFilter, statusFilter],
+    () => filterStockRegisters(registers, { search: debouncedSearch, typeFilter, statusFilter }),
+    [registers, debouncedSearch, typeFilter, statusFilter],
   );
 
   const {
@@ -543,7 +548,7 @@ export function StockRegisterListView() {
     pageStart,
     pageEnd,
     setPage,
-  } = useClientPagination(filteredRegisters, STOCK_REGISTERS_PAGE_SIZE, [search, typeFilter, statusFilter]);
+  } = useClientPagination(filteredRegisters, STOCK_REGISTERS_PAGE_SIZE, [debouncedSearch, typeFilter, statusFilter]);
 
   const storeOptions = useMemo(
     () => getCreatableStockRegisterStoreOptions(locations, user?.assigned_locations),
@@ -603,7 +608,7 @@ export function StockRegisterListView() {
     total: registers.length,
     filteredTotal: filteredRegisters.length,
     filters: {
-      search: search || null,
+      search: debouncedSearch || null,
       type: typeFilter,
       status: statusFilter,
     },
@@ -646,7 +651,7 @@ export function StockRegisterListView() {
     page,
     pagedRegisters,
     registers.length,
-    search,
+    debouncedSearch,
     statusFilter,
     storeOptions,
     stockRegisterListControls,

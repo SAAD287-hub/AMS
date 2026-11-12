@@ -16,7 +16,7 @@ class VendorViewSet(viewsets.ModelViewSet):
     search_fields = ['name', 'code', 'contact_person', 'phone', 'email']
 
     def get_queryset(self):
-        return Vendor.objects.all().order_by('name')
+        return Vendor.objects.select_related('created_by').order_by('name')
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
