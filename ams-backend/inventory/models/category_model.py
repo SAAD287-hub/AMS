@@ -113,17 +113,18 @@ class Category(models.Model):
         super().clean()
         if self.parent_category and self.parent_category.parent_category:
             raise ValidationError("Only 2-level category hierarchy is allowed")
-        
+
         # Case 1: Top-level Parent
         if not self.parent_category:
             if not self.category_type:
                 raise ValidationError("Top-level categories must define a Category Type (Fixed Asset or Consumable)")
-            
+
         # Case 2: Subcategory
         else:
-            if not self.tracking_type:
-                raise ValidationError("Subcategories must define a Tracking Type (Individual or Quantity)")
-            
+            # tracking_type is now chosen per-item (Item.tracking_type) at item create time;
+            # it is no longer required on the subcategory. A category-level value, if set,
+            # still serves as a fallback via Item.get_tracking_type().
+
             # Compatibility Check: No Fixed Asset under Consumable parent
             if self.category_type == CategoryType.FIXED_ASSET and self.parent_category.get_category_type() == CategoryType.CONSUMABLE:
                 raise ValidationError("A Fixed Asset subcategory cannot be created under a Consumable parent category.")

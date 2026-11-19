@@ -175,7 +175,7 @@ class ItemInstanceViewSet(ScopedViewSetMixin, viewsets.ModelViewSet):
         except (TypeError, ValueError, Item.DoesNotExist):
             raise ValidationError({'item': 'Select a valid item.'})
 
-        if item.category.get_tracking_type() != TrackingType.INDIVIDUAL:
+        if item.get_tracking_type() != TrackingType.INDIVIDUAL:
             raise ValidationError({'item': 'Serial-number import is only available for individual-tracked items.'})
         return item
 

@@ -31,6 +31,9 @@ export interface ItemRecord {
   is_low_stock?: boolean;
   standalone_location_count?: number | null;
   is_active: boolean;
+  resolved_tracking_type?: TrackingType;
+  instance_count?: number | null;
+  batch_count?: number | null;
   created_at?: string | null;
   updated_at?: string | null;
   created_by_name?: string | null;

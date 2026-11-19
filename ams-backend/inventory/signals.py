@@ -117,8 +117,42 @@ def auto_create_store_for_standalone(sender, instance, created, **kwargs):
 
             instance.auto_created_store = store
             instance.save(update_fields=['auto_created_store'])
-            
+
             logger.info(f"[SIGNAL] Auto-created hierarchical store {store_name} (parent: {store_parent.name}) for standalone {instance.name}")
+
+            # For every non-root standalone (i.e. a department), seed the three
+            # default stock registers on its main store. Central Store (root)
+            # is left alone — admins can create central registers by hand.
+            if not is_root:
+                _bootstrap_default_registers(store, instance)
+
+
+def _bootstrap_default_registers(store, department):
+    """Seed CSR / DSR / FFR for a department's main store.
+
+    Idempotent: (store, register_type) is checked before create so re-runs and
+    the data-migration backfill never collide. ``register_number`` falls under
+    the ``(register_number, store)`` unique_together — we key it on the
+    department code so each department gets a self-descriptive number.
+    """
+    from .models.stock_register_model import StockRegister
+
+    for code in StockRegister.DEFAULT_REGISTER_CODES:
+        if StockRegister.objects.filter(store=store, register_type=code).exists():
+            continue
+        StockRegister.objects.create(
+            store=store,
+            register_type=code,
+            register_number=f"{code}-{department.code}-0001",
+            is_active=True,
+            created_by=getattr(department, 'created_by', None),
+        )
+    logger.info(
+        "[SIGNAL] Ensured default stock registers (%s) for store %s of department %s",
+        ", ".join(StockRegister.DEFAULT_REGISTER_CODES),
+        store.name,
+        department.name,
+    )
 
 def _record_movement_history(instance, entry):
     """
@@ -699,7 +733,7 @@ def auto_generate_stock_from_inspection(sender, instance, created, **kwargs):
 
         items_to_move = []
         for i_item in instance.items.filter(accepted_quantity__gt=0):
-            tracking_type = i_item.item.category.get_tracking_type()
+            tracking_type = i_item.item.get_tracking_type()
             category_type = i_item.item.category.get_category_type()
             # Find or Create Batch
             batch = None

@@ -11,6 +11,7 @@ import {
   getPrimaryInstanceIdentifier,
 } from "@/lib/itemInstanceDetailUi";
 import { getStockEntryDisplayDirection } from "@/lib/stockEntryFormRules";
+import { formatStockEntryKind, type EntryType } from "@/lib/stockEntryLabels";
 import { formatItemDate, formatItemLabel, toNumber, type DepreciationSummary, type ItemRecord } from "@/lib/itemUi";
 import {
   formatMaintenanceLabel,
@@ -509,7 +510,7 @@ export function ItemInstanceDetailView({ itemId, instanceId }: { itemId: string;
                         <thead>
                           <tr>
                             <th>Entry ID</th>
-                            <th>Movement Type</th>
+                            <th>Operation</th>
                             <th>From</th>
                             <th>To</th>
                             <th>Date & Time</th>
@@ -522,7 +523,7 @@ export function ItemInstanceDetailView({ itemId, instanceId }: { itemId: string;
                             return (
                               <tr key={entry.id}>
                                 <td><Link className={styles.inlineLink} href={`/stock-entries/${entry.id}`}>{entry.entry_number}</Link></td>
-                                <td>{formatItemLabel(entry.entry_type)}</td>
+                                <td>{formatStockEntryKind({ entry_type: entry.entry_type as EntryType })}</td>
                                 <td>{direction.source}</td>
                                 <td>{direction.target}</td>
                                 <td>{formatDateTime(entry.entry_date || entry.created_at)}</td>

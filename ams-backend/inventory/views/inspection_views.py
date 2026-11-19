@@ -148,7 +148,7 @@ def auto_assign_perishable_batch_numbers(instance: InspectionCertificate):
         if (
             not item
             or item.category.get_category_type() != CategoryType.PERISHABLE
-            or item.category.get_tracking_type() != TrackingType.QUANTITY
+            or item.get_tracking_type() != TrackingType.QUANTITY
         ):
             continue
         item_code = (item.code or f"ITEM-{item.id}").strip()
@@ -547,7 +547,7 @@ class InspectionViewSet(ScopedViewSetMixin, viewsets.ModelViewSet):
         if not inspection_item.item:
             return Response({'detail': 'Inspection item is not linked to a catalog item.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        if inspection_item.item.category.get_tracking_type() != TrackingType.QUANTITY:
+        if inspection_item.item.get_tracking_type() != TrackingType.QUANTITY:
             return Response({'detail': 'Distribution tracing is available only for quantity-tracked inspection items.'}, status=status.HTTP_400_BAD_REQUEST)
 
         if not inspection_item.batch_number:
@@ -575,7 +575,7 @@ class InspectionViewSet(ScopedViewSetMixin, viewsets.ModelViewSet):
                 'item_name': inspection_item.item.name,
                 'item_code': inspection_item.item.code,
                 'accepted_quantity': inspection_item.accepted_quantity,
-                'tracking_type': inspection_item.item.category.get_tracking_type(),
+                'tracking_type': inspection_item.item.get_tracking_type(),
                 'tracking_lot': inspection_item.batch_number,
                 'manufactured_date': inspection_item.manufactured_date,
                 'expiry_date': inspection_item.expiry_date,

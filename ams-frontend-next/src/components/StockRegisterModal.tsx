@@ -51,7 +51,7 @@ function Section({ n, title, sub, children }: { n: number; title: string; sub?: 
 
 type StockRegisterFormState = {
   register_number: string;
-  register_type: "CSR" | "DSR" | "";
+  register_type: "CSR" | "DSR" | "FFR" | "";
   store: string;
   is_active: boolean;
 };
@@ -105,7 +105,7 @@ function buildStockRegisterCopilotValuePatch(
   if (typeof values.register_number === "string") {
     patch.register_number = values.register_number;
   }
-  if (values.register_type === "CSR" || values.register_type === "DSR" || values.register_type === "") {
+  if (values.register_type === "CSR" || values.register_type === "DSR" || values.register_type === "FFR" || values.register_type === "") {
     patch.register_type = values.register_type;
   }
   if (typeof values.store === "string" || typeof values.store === "number") {
@@ -191,6 +191,7 @@ export function StockRegisterModal({ open, mode, register, stores, storesLoading
       options: [
         { value: "CSR", label: "Consumable Stock Register" },
         { value: "DSR", label: "Dead Stock Register" },
+        { value: "FFR", label: "Furniture and Fixture Register" },
       ],
     },
     {
@@ -345,7 +346,7 @@ export function StockRegisterModal({ open, mode, register, stores, storesLoading
                     <ThemedSelect
                       value={form.register_type}
                       onChange={(value) => {
-                        set({ register_type: value as "CSR" | "DSR" | "" });
+                        set({ register_type: value as "CSR" | "DSR" | "FFR" | "" });
                         setTouched((prev) => new Set(prev).add("register_type"));
                       }}
                       placeholder="Select register type"
@@ -353,6 +354,7 @@ export function StockRegisterModal({ open, mode, register, stores, storesLoading
                       options={[
                         { value: "CSR", label: "Consumable Stock Register" },
                         { value: "DSR", label: "Dead Stock Register" },
+                        { value: "FFR", label: "Furniture and Fixture Register" },
                       ]}
                     />
                   </Field>

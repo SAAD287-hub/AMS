@@ -9,6 +9,7 @@ import {
   streamAssistantResponse,
 } from "@/lib/assistant";
 import { Button } from "@/components/ui/button";
+import { friendlyMessage } from "@/lib/api";
 
 
 const WELCOME_MESSAGE: AssistantThreadMessage = {
@@ -139,7 +140,7 @@ export function AssistantPanel() {
         },
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "The assistant request failed.";
+      const message = friendlyMessage(error instanceof Error ? error.message : "The assistant request failed.");
       setRequestError(message);
       startTransition(() => {
         setMessages(previous => {

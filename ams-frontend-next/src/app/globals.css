@@ -852,6 +852,14 @@ summary:focus-visible {
   color: var(--ink-2);
   border: 1px solid var(--hairline);
   line-height: 18px;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.chip > * { min-width: 0; }
+.chip .chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .chip-loc {
   background: var(--card);
@@ -953,6 +961,8 @@ summary:focus-visible {
   font-size: 11.5px;
   font-weight: 500;
   line-height: 18px;
+  white-space: nowrap;
+  max-width: 100%;
 }
 .pill-success { background: var(--success-weak); color: var(--success); }
 .pill-neutral {
@@ -1374,28 +1384,29 @@ kbd {
  * The whole pill is one button so clicking anywhere opens the composer. */
 .copilot-launcher {
   position: fixed;
-  left: 50%;
-  bottom: 14px;
+  right: 20px;
+  bottom: 20px;
   z-index: 1099;
-  transform: translateX(-50%);
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  height: 38px;
-  padding: 4px 6px 4px 12px;
-  border: 1px solid color-mix(in oklch, var(--ink) 8%, var(--hairline));
-  border-radius: 999px;
-  background: color-mix(in oklch, white 96%, var(--card));
-  color: var(--ink);
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border: 1px solid color-mix(in oklch, var(--ink) 10%, var(--hairline));
+  border-radius: 50%;
+  background: linear-gradient(180deg,
+    color-mix(in oklch, var(--primary) 85%, white) 0%,
+    var(--primary) 100%);
+  color: white;
   font-family: var(--font-sans);
-  font-size: 12.5px;
-  font-weight: 500;
-  letter-spacing: 0;
-  cursor: pointer;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.92) inset,
-    0 12px 30px -16px rgba(15, 23, 42, 0.28),
-    0 2px 6px rgba(15, 23, 42, 0.05);
+    0 1px 0 rgba(255, 255, 255, 0.28) inset,
+    0 14px 30px -10px rgba(15, 23, 42, 0.35),
+    0 4px 10px rgba(15, 23, 42, 0.12);
   transition:
     transform var(--t-fast),
     box-shadow var(--t-fast),
@@ -1404,103 +1415,70 @@ kbd {
 }
 
 .copilot-launcher:hover {
-  transform: translate(-50%, -2px);
-  border-color: color-mix(in oklch, var(--ink) 14%, var(--hairline));
+  transform: translateY(-2px);
+  border-color: color-mix(in oklch, var(--ink) 18%, var(--hairline));
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.94) inset,
-    0 18px 36px -16px rgba(15, 23, 42, 0.34),
-    0 3px 8px rgba(15, 23, 42, 0.06);
+    0 1px 0 rgba(255, 255, 255, 0.30) inset,
+    0 20px 38px -10px rgba(15, 23, 42, 0.42),
+    0 6px 12px rgba(15, 23, 42, 0.14);
+}
+
+.copilot-launcher:active {
+  cursor: grabbing;
+  transform: translateY(0);
 }
 
 .copilot-launcher-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   flex: 0 0 auto;
-  color: var(--ink);
+  color: inherit;
+  pointer-events: none;
 }
 
-.copilot-launcher-message {
-  color: var(--ink);
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 280px;
-}
+.copilot-launcher-message,
+.copilot-launcher-cta { display: none; }
 
-/* Right-side filled amber CTA -visual style of the "Try it" button in the
- * reference banner. Lives inside the same <button>, so it's a span styled
- * to look like a button. The whole pill is the click target. */
-.copilot-launcher-cta {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 28px;
-  padding: 0 14px;
-  flex: 0 0 auto;
-  border-radius: 999px;
+/* State-aware accents. Background gradient shifts for each status;
+ * icon stays white, aria-label conveys exact state. */
+.copilot-launcher--working {
   background: linear-gradient(180deg, #fbbf24 0%, #f59e0b 100%);
-  color: #422006;
-  font-weight: 700;
-  font-size: 12px;
-  letter-spacing: 0.005em;
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.35) inset,
-    0 4px 10px -4px rgba(245, 158, 11, 0.45);
-  transition: filter var(--t-fast), box-shadow var(--t-fast);
+  border-color: color-mix(in oklch, #f59e0b 40%, transparent);
 }
 
-.copilot-launcher:hover .copilot-launcher-cta {
-  filter: brightness(1.04) saturate(1.05);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.4) inset,
-    0 6px 14px -4px rgba(245, 158, 11, 0.55);
-}
-
-/* State-aware accents.
- *   idle     → neutral icon, default CTA
- *   working  → amber-tinted sparkle, CTA stays amber (consistent)
- *   unread   → emerald sparkle (matches assistant new-reply hint)
- *   approval → red sparkle + red CTA, slight border accent (urgent) */
-.copilot-launcher--working .copilot-launcher-icon { color: #b45309; }
-
-.copilot-launcher--unread .copilot-launcher-icon { color: #047857; }
-.copilot-launcher--unread .copilot-launcher-cta {
+.copilot-launcher--unread {
   background: linear-gradient(180deg, #34d399 0%, #10b981 100%);
-  color: #052e1a;
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.35) inset,
-    0 4px 10px -4px rgba(16, 185, 129, 0.45);
+  border-color: color-mix(in oklch, #10b981 40%, transparent);
 }
 
 .copilot-launcher--approval {
-  border-color: color-mix(in oklch, var(--danger) 38%, transparent);
-}
-.copilot-launcher--approval .copilot-launcher-icon { color: var(--danger); }
-.copilot-launcher--approval .copilot-launcher-cta {
   background: linear-gradient(180deg,
     color-mix(in oklch, var(--danger) 88%, white) 0%,
     var(--danger) 100%);
-  color: white;
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.22) inset,
-    0 4px 12px -4px color-mix(in oklch, var(--danger) 55%, transparent);
+  border-color: color-mix(in oklch, var(--danger) 55%, transparent);
+  animation: copilot-launcher-pulse 1.6s ease-in-out infinite;
 }
 
-@media (max-width: 520px) {
-  .copilot-launcher {
-    max-width: calc(100vw - 22px);
+@keyframes copilot-launcher-pulse {
+  0%, 100% {
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.28) inset,
+      0 14px 30px -10px color-mix(in oklch, var(--danger) 55%, transparent),
+      0 0 0 0 color-mix(in oklch, var(--danger) 40%, transparent);
   }
-  .copilot-launcher-message {
-    max-width: 150px;
+  50% {
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.28) inset,
+      0 14px 30px -10px color-mix(in oklch, var(--danger) 55%, transparent),
+      0 0 0 8px color-mix(in oklch, var(--danger) 0%, transparent);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .copilot-launcher { transition: none; }
+  .copilot-launcher { transition: none; animation: none; }
 }
 
 .copilot-search-input {
@@ -8656,9 +8634,9 @@ button:active,
   gap: 10px;
   padding: 16px 18px 14px;
   min-width: 0;
-  border-top: 3px solid color-mix(in oklch, var(--workflow-stage) 36%, white);
+  border-top: 3px solid color-mix(in oklch, var(--workflow-stage) 36%, var(--card));
   border-right: 1px solid var(--hairline);
-  background: color-mix(in oklch, var(--workflow-stage) 3%, white);
+  background: color-mix(in oklch, var(--workflow-stage) 4%, var(--card));
 }
 .inspection-workflow-step:last-child { border-right: 0; }
 .inspection-workflow-step.stage-draft { --workflow-stage: var(--muted-2); }
@@ -8667,19 +8645,26 @@ button:active,
 .inspection-workflow-step.stage-finance-review { --workflow-stage: var(--tier-0); }
 .inspection-workflow-step.stage-completed { --workflow-stage: var(--success); }
 .inspection-workflow-step.is-current {
-  background: color-mix(in oklch, var(--workflow-stage) 8%, white);
+  --workflow-highlight: var(--workflow-stage);
+  background: color-mix(in oklch, var(--workflow-stage) 18%, var(--card));
+  border-top-width: 3px;
+  border-top-color: var(--workflow-stage);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--workflow-stage) 30%, transparent);
 }
 .inspection-workflow-step.is-complete {
-  background: color-mix(in oklch, var(--workflow-stage) 5%, white);
+  --workflow-highlight: var(--success);
+  background: color-mix(in oklch, var(--success) 12%, var(--card));
+  border-top-color: color-mix(in oklch, var(--success) 55%, var(--card));
 }
 .inspection-workflow-step.is-rejected {
   --workflow-stage: var(--danger);
-  background: color-mix(in oklch, var(--danger) 6%, white);
+  --workflow-highlight: var(--danger);
+  background: color-mix(in oklch, var(--danger) 14%, var(--card));
+  border-top-color: var(--danger);
 }
 .inspection-workflow-step.is-upcoming {
-  background: color-mix(in oklch, var(--surface) 90%, white);
-  border-top-color: color-mix(in oklch, var(--muted-2) 22%, white);
-  box-shadow: inset 0 1px 0 color-mix(in oklch, white 60%, transparent);
+  background: var(--card);
+  border-top-color: var(--hairline);
 }
 .inspection-workflow-marker {
   display: flex;
@@ -8701,16 +8686,23 @@ button:active,
   color: var(--muted);
   background: var(--surface);
 }
-.inspection-workflow-step.is-complete .inspection-workflow-badge,
+.inspection-workflow-step.is-complete .inspection-workflow-badge {
+  border-color: color-mix(in oklch, var(--success) 45%, transparent);
+  background: color-mix(in oklch, var(--success) 26%, var(--card));
+  color: var(--success);
+  font-weight: 700;
+}
 .inspection-workflow-step.is-current .inspection-workflow-badge {
-  border-color: color-mix(in oklch, var(--workflow-stage) 24%, transparent);
-  background: color-mix(in oklch, var(--workflow-stage) 14%, white);
+  border-color: color-mix(in oklch, var(--workflow-stage) 45%, transparent);
+  background: color-mix(in oklch, var(--workflow-stage) 26%, var(--card));
   color: var(--workflow-stage);
+  font-weight: 700;
 }
 .inspection-workflow-step.is-rejected .inspection-workflow-badge {
-  border-color: color-mix(in oklch, var(--danger) 24%, transparent);
-  background: color-mix(in oklch, var(--danger) 14%, white);
+  border-color: color-mix(in oklch, var(--danger) 45%, transparent);
+  background: color-mix(in oklch, var(--danger) 26%, var(--card));
   color: var(--danger);
+  font-weight: 700;
 }
 .inspection-workflow-label {
   font-size: 13px;
@@ -8721,7 +8713,20 @@ button:active,
 .inspection-workflow-status {
   margin-top: 3px;
   font-size: 11.5px;
+  font-weight: 500;
   color: var(--muted);
+}
+.inspection-workflow-step.is-current .inspection-workflow-status {
+  color: var(--workflow-stage);
+  font-weight: 600;
+}
+.inspection-workflow-step.is-complete .inspection-workflow-status {
+  color: var(--success);
+  font-weight: 600;
+}
+.inspection-workflow-step.is-rejected .inspection-workflow-status {
+  color: var(--danger);
+  font-weight: 600;
 }
 .inspection-workflow-owner {
   min-height: 32px;
@@ -8903,9 +8908,9 @@ button:active,
   width: fit-content;
   max-width: min(420px, 100%);
   padding: 9px 12px 9px 9px;
-  border: 1px solid color-mix(in oklch, var(--warn) 36%, transparent);
+  border: 1px solid color-mix(in oklch, var(--warn) 42%, transparent);
   border-radius: 999px;
-  background: color-mix(in oklch, var(--warn-weak) 88%, white);
+  background: color-mix(in oklch, var(--warn) 18%, var(--card));
   color: var(--ink);
   text-decoration: none;
   box-shadow: var(--shadow-sm);
@@ -11635,8 +11640,8 @@ button:active,
   z-index: 1;
 }
 .trail-default .trail-dot {
-  border-color: color-mix(in oklch, var(--success) 30%, transparent);
-  background: color-mix(in oklch, var(--success) 14%, white);
+  border-color: color-mix(in oklch, var(--success) 40%, transparent);
+  background: color-mix(in oklch, var(--success) 22%, var(--card));
   color: var(--success);
 }
 .trail-pending .trail-dot {
@@ -11645,8 +11650,8 @@ button:active,
   color: var(--muted);
 }
 .trail-danger .trail-dot {
-  border-color: color-mix(in oklch, var(--danger) 30%, transparent);
-  background: color-mix(in oklch, var(--danger) 14%, white);
+  border-color: color-mix(in oklch, var(--danger) 40%, transparent);
+  background: color-mix(in oklch, var(--danger) 22%, var(--card));
   color: var(--danger);
 }
 .trail-line {

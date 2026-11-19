@@ -95,12 +95,24 @@ export function locationTagCategoryLabel(category: string) {
   return LOCATION_TAG_CATEGORY_LABELS[category] ?? category;
 }
 
+export const REGISTER_TYPE_FULL_NAMES: Record<"CSR" | "DSR" | "FFR", string> = {
+  CSR: "Consumable Stock Register",
+  DSR: "Dead Stock Register",
+  FFR: "Furniture and Fixture Register",
+};
+
+export function registerTypeFullName(type: "CSR" | "DSR" | "FFR" | string | null | undefined): string {
+  if (!type) return "";
+  return REGISTER_TYPE_FULL_NAMES[type as "CSR" | "DSR" | "FFR"] ?? type;
+}
+
 export interface StockRegisterRecord {
   id: number;
   register_number: string;
-  register_type: "CSR" | "DSR";
+  register_type: "CSR" | "DSR" | "FFR";
   store: number;
   store_name?: string | null;
+  department?: { id: number; name: string } | null;
   is_active: boolean;
   closed_at?: string | null;
   closed_by?: number | null;

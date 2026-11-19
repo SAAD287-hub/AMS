@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ListPagination } from "@/components/ListPagination";
 import { MultiSelectFilter } from "@/components/MultiSelectFilter";
@@ -97,32 +98,38 @@ function InspectionRowActions({
   onViewPdf: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [openUp, setOpenUp] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const moreRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const canDelete = canFull && inspection.stage === "DRAFT";
 
   const closeMenu = useCallback(() => {
     setOpen(false);
-    setOpenUp(false);
+    setMenuPos(null);
   }, []);
 
-  const updateMenuDirection = useCallback(() => {
+  const updateMenuPosition = useCallback(() => {
     const wrapper = moreRef.current;
     const menu = menuRef.current;
-    if (!wrapper || !menu) return;
+    if (!wrapper) return;
 
     const wrapperRect = wrapper.getBoundingClientRect();
-    const card = wrapper.closest(".table-card");
-    const cardRect =
-      card instanceof HTMLElement ? card.getBoundingClientRect() : null;
-    const boundaryTop = cardRect?.top ?? 0;
-    const boundaryBottom = cardRect?.bottom ?? window.innerHeight;
-    const spaceBelow = boundaryBottom - wrapperRect.bottom;
-    const spaceAbove = wrapperRect.top - boundaryTop;
-    const menuHeight = menu.offsetHeight || menu.scrollHeight;
+    const menuWidth = menu?.offsetWidth ?? 180;
+    const menuHeight = menu?.offsetHeight ?? menu?.scrollHeight ?? 160;
+    const gap = 4;
+    const viewportW = window.innerWidth;
+    const viewportH = window.innerHeight;
 
-    setOpenUp(spaceBelow < menuHeight + 8 && spaceAbove > spaceBelow);
+    const spaceBelow = viewportH - wrapperRect.bottom;
+    const openUp = spaceBelow < menuHeight + gap && wrapperRect.top > menuHeight + gap;
+
+    const top = openUp
+      ? Math.max(8, wrapperRect.top - menuHeight - gap)
+      : Math.min(viewportH - menuHeight - 8, wrapperRect.bottom + gap);
+    const rawLeft = wrapperRect.right - menuWidth;
+    const left = Math.max(8, Math.min(viewportW - menuWidth - 8, rawLeft));
+
+    setMenuPos({ top, left });
   }, []);
 
   useEffect(() => {
@@ -131,9 +138,14 @@ function InspectionRowActions({
 
   useLayoutEffect(() => {
     if (!open) return;
-    updateMenuDirection();
+    updateMenuPosition();
 
-    const handlePosition = () => updateMenuDirection();
+    const handlePosition = (event?: Event) => {
+      if (event && menuRef.current && event.target instanceof Node && menuRef.current.contains(event.target)) {
+        return;
+      }
+      updateMenuPosition();
+    };
     window.addEventListener("resize", handlePosition);
     window.addEventListener("scroll", handlePosition, true);
 
@@ -141,7 +153,27 @@ function InspectionRowActions({
       window.removeEventListener("resize", handlePosition);
       window.removeEventListener("scroll", handlePosition, true);
     };
-  }, [open, updateMenuDirection]);
+  }, [open, updateMenuPosition]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (menuRef.current?.contains(target)) return;
+      if (moreRef.current?.contains(target)) return;
+      closeMenu();
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeMenu();
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [open, closeMenu]);
 
   return (
     <div className="row-actions" onClick={(event) => event.stopPropagation()}>
@@ -164,10 +196,15 @@ function InspectionRowActions({
             size={14}
           />
         </Button>
-        {open && (
+        {open && typeof document !== "undefined" && createPortal(
           <div
             ref={menuRef}
-            className={"row-menu" + (openUp ? " row-menu-up" : "")}
+            className="row-menu row-menu-fixed"
+            style={{
+              top: menuPos?.top ?? -9999,
+              left: menuPos?.left ?? -9999,
+              visibility: menuPos ? "visible" : "hidden",
+            }}
           >
             <button
               type="button"
@@ -224,7 +261,8 @@ function InspectionRowActions({
                 Delete unavailable
               </button>
             )}
-          </div>
+          </div>,
+          document.body,
         )}
       </div>
     </div>
@@ -264,30 +302,26 @@ function InspectionRow({
         </div>
       </td>
       <td>
-        <div className="user-name mono">{inspection.indent_no || "-"}</div>
+        <div className="user-name">{inspection.indent_no || "-"}</div>
       </td>
-      <td style={{ textAlign: "center" }}>
-        <div className="user-name mono">
+      <td>
+        <div className="user-name">
           {formatInspectionDate(inspection.contract_date)}
         </div>
       </td>
       <td>
         <div className="user-name">{inspection.contractor_name || "-"}</div>
       </td>
-      <td className="inspection-table-location-cell">
-        <div className="inspection-table-centered-cell">
-          <div className="inspection-location-name">
-            {inspection.department_name}
-          </div>
-        </div>
+      <td>
+        <span className="chip chip-loc" title={inspection.department_name ?? undefined}>
+          {inspection.department_name}
+        </span>
       </td>
-      <td className="inspection-table-status-cell">
-        <div className="inspection-table-centered-cell">
-          <InspectionStagePill
-            stage={inspection.stage}
-            status={inspection.status}
-          />
-        </div>
+      <td>
+        <InspectionStagePill
+          stage={inspection.stage}
+          status={inspection.status}
+        />
       </td>
       <td className="col-login">
         <div className="login-cell">
@@ -794,6 +828,9 @@ export default function InspectionsPage() {
         <div className="page-head">
           <div className="page-title-group">
             <h1>Inspection Certificates</h1>
+            <div className="muted-note" style={{ marginTop: 4 }}>
+              Browse inspection certificates. Open a row to continue a draft or review its stock details.
+            </div>
           </div>
         </div>
 
@@ -898,7 +935,7 @@ export default function InspectionsPage() {
         <div className="table-card">
           <div className="table-card-head">
             <div className="table-card-head-left">
-              <div className="eyebrow">Inspection register</div>
+              <div className="eyebrow">Inspections list</div>
               <div className="table-count">
                 <span className="mono">{filtered.length}</span>
                 <span>of</span>
@@ -913,13 +950,13 @@ export default function InspectionsPage() {
                 <tr>
                   <th>Invoice / Contract No</th>
                   <th>Indent Number</th>
-                  <th style={{ textAlign: "center" }}>Contract Date</th>
+                  <th>Contract Date</th>
                   <th>Contractor</th>
                   <th>Location</th>
                   <th>Status</th>
                   <th>Created</th>
-                  <th>Updated at</th>
-                  <th style={{ textAlign: "right" }}>Actions</th>
+                  <th>Updated</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -928,9 +965,10 @@ export default function InspectionsPage() {
                     <td colSpan={9}>
                       <div
                         style={{
-                          padding: 32,
+                          padding: "32px 12px",
                           textAlign: "center",
-                          color: "var(--muted)",
+                          color: "var(--text-2)",
+                          fontSize: 13,
                         }}
                       >
                         Loading inspections…
@@ -955,9 +993,10 @@ export default function InspectionsPage() {
                     <td colSpan={9}>
                       <div
                         style={{
-                          padding: 32,
+                          padding: "32px 12px",
                           textAlign: "center",
-                          color: "var(--muted)",
+                          color: "var(--text-2)",
+                          fontSize: 13,
                         }}
                       >
                         No inspection certificates match the current filters.

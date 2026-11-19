@@ -260,8 +260,8 @@ def _line_from_payload(entry: StockEntry, raw_line) -> CorrectionLineInput:
         resolution_type = CorrectionResolutionType.ADJUSTMENT_REQUIRED
         message = 'This entry type requires approved stock adjustment.'
 
-    category = getattr(entry_item.item, 'category', None)
-    if delta != 0 and category and category.get_tracking_type() == TrackingType.INDIVIDUAL:
+    item = getattr(entry_item, 'item', None)
+    if delta != 0 and item and item.get_tracking_type() == TrackingType.INDIVIDUAL:
         required_count = abs(delta)
         if len(affected_instance_ids) != required_count:
             resolution_type = CorrectionResolutionType.BLOCKED

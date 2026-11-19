@@ -56,12 +56,74 @@ function collectFieldErrors(
 
 // Converts technical / backend error strings into friendlier end-user phrasing.
 // Only rewrites patterns we know are confusing; otherwise returns the input as-is.
+// Order matters: more specific checks go first so a generic branch doesn't
+// pre-empt them.
 export function friendlyMessage(raw: string): string {
   if (!raw) return raw;
   const msg = raw.trim();
   const lower = msg.toLowerCase();
 
-  // Common Django / DRF / database patterns
+  // --- unique_together variants (specific pairs before the generic fallback) ---
+  if (
+    lower.includes("must make a unique set") &&
+    lower.includes("parent_category") &&
+    lower.includes("name")
+  ) {
+    return "A subcategory with this name already exists under this parent. Please contact an administrator if you need another one.";
+  }
+  if (
+    lower.includes("must make a unique set") &&
+    lower.includes("item") &&
+    lower.includes("batch_number")
+  ) {
+    return "A batch or lot with this number already exists for this item. Please enter a different batch number.";
+  }
+  if (
+    lower.includes("must make a unique set") &&
+    lower.includes("register_number") &&
+    lower.includes("store")
+  ) {
+    return "A stock register with this number already exists for this store. Please use a different register number.";
+  }
+  if (
+    lower.includes("must make a unique set") &&
+    lower.includes("policy") &&
+    lower.includes("fiscal_year_start")
+  ) {
+    return "A depreciation run for this policy and fiscal year already exists.";
+  }
+  if (lower.includes("must make a unique set")) {
+    return "A record with this combination of values already exists.";
+  }
+
+  // --- auth-specific (match BEFORE the generic missing-credentials line) ---
+  if (lower.includes("no refresh token")) {
+    return "Your session has expired. Please sign in again.";
+  }
+  if (
+    lower.includes("unable to log in with provided credentials") ||
+    lower.includes("no active account found") ||
+    lower === "invalid credentials." ||
+    lower === "invalid credentials"
+  ) {
+    return "The username or password is incorrect. Please try again.";
+  }
+  if (
+    lower.includes("account disabled") ||
+    lower.includes("account has been disabled") ||
+    lower.includes("user account is disabled") ||
+    lower.includes("user is inactive")
+  ) {
+    return "This account is disabled. Please contact an administrator.";
+  }
+  if (
+    lower.includes("token not valid") ||
+    lower.includes("given token not valid") ||
+    lower.includes("token is invalid or expired")
+  ) {
+    return "Your session has expired. Please sign in again.";
+  }
+
   if (lower.includes("duplicate key value") || lower.includes("already exists")) {
     return "This value is already in use. Please choose a different one.";
   }
@@ -71,14 +133,50 @@ export function friendlyMessage(raw: string): string {
   if (lower.includes("authentication credentials were not provided")) {
     return "You need to sign in to perform this action.";
   }
-  if (lower.includes("permission") && lower.includes("denied")) {
-    return "You do not have permission to perform this action.";
+
+  // Microphone permission denial — specific case of permission+denied.
+  if (
+    lower.includes("notallowederror") ||
+    (lower.includes("permission denied") && lower.includes("microphone")) ||
+    (lower.includes("getusermedia") && lower.includes("denied"))
+  ) {
+    return "Microphone access is blocked. Please allow microphone permission in your browser and try again.";
   }
+  if (lower.includes("permission") && lower.includes("denied")) {
+    return "You do not have permission to perform this action. If you think you should, ask an administrator to adjust your role.";
+  }
+
+  // Workflow/state-machine errors ("Cannot transition from DRAFT to STOCK_DETAILS").
+  if (lower.includes("cannot transition from")) {
+    return "This record is not at the right stage for that action. Refresh the page and try again from its current stage.";
+  }
+
+  if (lower.includes("request was throttled")) {
+    return "Too many attempts. Please wait a moment and try again.";
+  }
+
+  // Delete-blocker phrasings that mention internal entity names.
+  if (lower.includes("item instances") || lower.includes("item batches")) {
+    return "This item still has recorded units or batches, so it cannot be deleted.";
+  }
+  if (lower.includes("auto-created main store")) {
+    return "The main store for this location still has sub-locations. Please move or delete them first.";
+  }
+
   if (lower.includes("integrityerror") || lower.includes("foreign key") || lower.includes("constraint failed")) {
     return "This record is linked to other data and cannot be changed or removed in this way.";
   }
   if (lower.includes("not found") || lower === "404" || lower.includes("does not exist")) {
     return "The requested record was not found. It may have been removed.";
+  }
+
+  // Bare browser-level fetch failures (TypeError: Failed to fetch, Safari "Load failed", Firefox NetworkError).
+  if (
+    lower.includes("failed to fetch") ||
+    lower === "load failed" ||
+    lower.includes("networkerror when attempting to fetch")
+  ) {
+    return "Could not reach the server. Please check your connection and try again.";
   }
   if (lower.includes("network") && (lower.includes("fail") || lower.includes("error"))) {
     return "Could not reach the server. Please check your connection and try again.";
@@ -89,8 +187,52 @@ export function friendlyMessage(raw: string): string {
   if (lower.startsWith("http 4")) {
     return "The request was rejected. Please review the form and try again.";
   }
+
+  // --- DRF field-validator chain ---
   if (lower.includes("this field is required") || lower.includes("may not be blank") || lower.includes("may not be null")) {
     return "This field is required.";
+  }
+  if (lower.includes("is not a valid choice")) {
+    return "Please pick one of the allowed options.";
+  }
+  if (lower.includes("a valid integer is required") || lower.includes("enter a valid integer")) {
+    return "Please enter a whole number.";
+  }
+  if (lower.includes("a valid number is required") || lower.includes("enter a number")) {
+    return "Please enter a valid number.";
+  }
+  if (lower.includes("ensure this value is less than or equal to")) {
+    return "This value is too large. Please enter a smaller number.";
+  }
+  if (lower.includes("ensure this value is greater than or equal to")) {
+    return "This value is too small. Please enter a larger number.";
+  }
+  if (lower.includes("ensure this field has no more than") || lower.includes("ensure this field has at most")) {
+    return "This text is too long. Please shorten it.";
+  }
+  if (lower.includes("ensure this field has at least")) {
+    return "This text is too short.";
+  }
+  if (lower.includes("ensure that there are no more than") && lower.includes("digits")) {
+    return "This number has too many digits. Please use fewer decimals.";
+  }
+  if (lower.includes("no file was submitted") || lower.includes("the submitted data was not a file")) {
+    return "Please attach a file.";
+  }
+  if (lower.includes("upload a valid image") || lower.includes("not an image or a corrupted image")) {
+    return "That file is not a valid image. Please upload a JPG or PNG.";
+  }
+  if (lower.includes("must be a valid uuid") || lower.includes("is not a valid uuid")) {
+    return "That identifier is not valid.";
+  }
+  if (lower.includes("enter a valid url")) {
+    return "Please enter a valid web address (starting with http:// or https://).";
+  }
+  if (lower.includes("expected a list of items")) {
+    return "Please provide a list of values.";
+  }
+  if (lower.includes("date has wrong format") || lower.includes("datetime has wrong format")) {
+    return "Please enter a valid date (YYYY-MM-DD).";
   }
   if (lower.includes("invalid date")) {
     return "Please enter a valid date.";
@@ -139,7 +281,10 @@ export function extractApiErrorDetails(body: unknown): ApiErrorDetails {
   }
 
   return {
-    message: globalErrors.length > 0 ? globalErrors.join(" ") : null,
+    message:
+      globalErrors.length > 0
+        ? globalErrors.map(friendlyMessage).map(capitalize).join(" ")
+        : null,
     fieldErrors,
     globalErrors,
   };

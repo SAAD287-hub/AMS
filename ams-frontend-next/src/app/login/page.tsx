@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
+import { friendlyMessage } from "@/lib/api";
 
 
 export default function LoginPage() {
@@ -25,7 +26,7 @@ export default function LoginPage() {
       await login(username, password);
       router.replace("/dashboard");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed. Check your credentials.");
+      setError(friendlyMessage(err instanceof Error ? err.message : "Login failed. Check your credentials."));
     } finally {
       setLoading(false);
     }

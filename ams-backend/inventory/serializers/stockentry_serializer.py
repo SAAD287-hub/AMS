@@ -220,13 +220,7 @@ class StockEntrySerializer(serializers.ModelSerializer):
         if not item or batch is not None:
             return False
 
-        category = getattr(item, 'category', None)
-        if not category:
-            return False
-
-        return (
-            category.get_tracking_type() == TrackingType.QUANTITY
-        )
+        return item.get_tracking_type() == TrackingType.QUANTITY
 
     def _expand_quantity_issue_items(self, entry_type, from_location, items_data):
         if entry_type != 'ISSUE' or not from_location:
@@ -312,11 +306,7 @@ class StockEntrySerializer(serializers.ModelSerializer):
         if not item or batch is not None:
             return False
 
-        category = getattr(item, 'category', None)
-        if not category:
-            return False
-
-        return category.get_tracking_type() == TrackingType.QUANTITY
+        return item.get_tracking_type() == TrackingType.QUANTITY
 
     def _expand_quantity_return_items(self, entry_type, to_location, issued_to, from_location, items_data):
         if entry_type != 'RECEIPT' or not to_location:
@@ -650,7 +640,7 @@ class StockEntrySerializer(serializers.ModelSerializer):
                 item_entry = StockEntryItem.objects.create(stock_entry=stock_entry, **item_data)
                 if instances:
                     item_entry.instances.set(instances)
-                elif is_vendor_receipt and item_entry.item.category.get_tracking_type() == TrackingType.INDIVIDUAL:
+                elif is_vendor_receipt and item_entry.item.get_tracking_type() == TrackingType.INDIVIDUAL:
                     created_instances = []
                     for _ in range(item_entry.quantity):
                         created_instances.append(ItemInstance.objects.create(

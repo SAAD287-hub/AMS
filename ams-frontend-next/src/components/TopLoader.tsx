@@ -44,17 +44,40 @@ export function TopLoader() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [progress, setProgress] = useState(0);
-  const [visible, setVisible] = useState(false);
+  const [visible, setVisibleState] = useState(false);
+  const visibleRef = useRef(false);
+  const setVisible = (v: boolean) => { visibleRef.current = v; setVisibleState(v); };
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const showTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevKeyRef = useRef<string | null>(null);
 
   const clear = () => {
     timers.current.forEach(clearTimeout);
     timers.current = [];
   };
 
-  // Route-change tick: run a fast scripted animation.
+  const cancelPendingShow = () => {
+    if (showTimerRef.current) {
+      clearTimeout(showTimerRef.current);
+      showTimerRef.current = null;
+    }
+  };
+
+  // Route-change tick: run a fast scripted animation. Skip the initial mount
+  // (first pathname is "arrival", not a change) so the bar doesn't flash on
+  // every full-page load. Also key on pathname+search as a string so stable
+  // identities on re-render don't re-fire the effect.
   useEffect(() => {
+    const key = `${pathname}?${searchParams?.toString() ?? ""}`;
+    if (prevKeyRef.current === null) {
+      prevKeyRef.current = key;
+      return;
+    }
+    if (prevKeyRef.current === key) return;
+    prevKeyRef.current = key;
+
     clear();
+    cancelPendingShow();
     setVisible(true);
     setProgress(8);
     timers.current.push(setTimeout(() => setProgress(40), 60));
@@ -66,13 +89,22 @@ export function TopLoader() {
     return clear;
   }, [pathname, searchParams]);
 
-  // In-flight API tick: show the bar while any apiFetch is pending.
+  // In-flight API tick: show the bar only when a request stays pending for
+  // more than 300ms. Fast polls (notifications summary, etc.) finish before
+  // the debounce fires and never flash the bar.
   useEffect(() => {
     return topLoader.subscribe(() => {
       if (topLoader.isBusy()) {
-        setVisible(true);
-        setProgress(prev => (prev < 70 ? Math.max(prev, 25) : Math.min(prev + 5, 92)));
+        if (showTimerRef.current || visibleRef.current) return;
+        showTimerRef.current = setTimeout(() => {
+          showTimerRef.current = null;
+          if (!topLoader.isBusy()) return;
+          setVisible(true);
+          setProgress(prev => (prev < 70 ? Math.max(prev, 25) : Math.min(prev + 5, 92)));
+        }, 300);
       } else {
+        cancelPendingShow();
+        if (!visibleRef.current) return;
         setProgress(100);
         timers.current.push(setTimeout(() => setVisible(false), 250));
         timers.current.push(setTimeout(() => setProgress(0), 400));

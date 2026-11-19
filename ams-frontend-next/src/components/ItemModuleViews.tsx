@@ -14,7 +14,7 @@ import { useCopilotAction } from "@/hooks/useCopilotAction";
 import { useCopilotForm, type CopilotFormField } from "@/hooks/useCopilotForm";
 import { useCopilotListControls } from "@/hooks/useCopilotListControls";
 import { useCopilotReadable } from "@/hooks/useCopilotReadable";
-import { apiFetch, type Page } from "@/lib/api";
+import { apiFetch, friendlyMessage, type Page } from "@/lib/api";
 import { ensureValueInOptions, normalizeCopilotSubmitError } from "@/lib/copilotFormRuntime";
 import {
   consumePendingOpen,
@@ -354,6 +354,7 @@ type ItemFormState = {
   name: string;
   code: string;
   category: string;
+  tracking_type: string;
   acct_unit: string;
   low_stock_threshold: string;
   description: string;
@@ -569,12 +570,15 @@ function Section({ n, title, sub, children }: { n: number; title: string; sub?: 
 }
 
 function itemForm(item: ItemRecord | null): ItemFormState {
+  const inheritedTracking =
+    (item as unknown as { resolved_tracking_type?: string | null } | null)?.resolved_tracking_type ?? "";
   return {
     name: item?.name ?? "",
     code: item?.code ?? "",
     category: item?.category == null ? "" : String(item.category),
+    tracking_type: item?.tracking_type ?? inheritedTracking ?? "",
     acct_unit: item?.acct_unit ?? "",
-    low_stock_threshold: item?.low_stock_threshold == null ? "" : String(item.low_stock_threshold),
+    low_stock_threshold: item?.low_stock_threshold == null ? "1" : String(item.low_stock_threshold),
     description: item?.description ?? "",
     specifications: item?.specifications ?? "",
     is_active: item?.is_active ?? true,
@@ -586,6 +590,7 @@ function itemPayload(form: ItemFormState, options?: { provisionalInspectionId?: 
     name: form.name.trim(),
     code: form.code.trim().toUpperCase(),
     category: Number(form.category),
+    tracking_type: form.tracking_type || null,
     acct_unit: form.acct_unit.trim(),
     low_stock_threshold: Number(form.low_stock_threshold),
     description: form.description.trim() || null,
@@ -606,6 +611,7 @@ export function buildItemCopilotValuePatch(values: Record<string, unknown>): Par
   if ("name" in values) patch.name = String(values.name ?? "");
   if ("code" in values) patch.code = String(values.code ?? "").toUpperCase();
   if ("category" in values) patch.category = values.category == null ? "" : String(values.category);
+  if ("tracking_type" in values) patch.tracking_type = String(values.tracking_type ?? "").toUpperCase();
   if ("acct_unit" in values) patch.acct_unit = String(values.acct_unit ?? "");
   if ("low_stock_threshold" in values) {
     patch.low_stock_threshold = values.low_stock_threshold == null ? "" : String(values.low_stock_threshold);
@@ -665,6 +671,24 @@ export function ItemModal({
   const [touched, setTouched] = useState<Set<string>>(() => new Set());
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [accountingUnits, setAccountingUnits] = useState<Array<{ id: number; code: string; name: string; is_active: boolean }>>([]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await apiFetch<Page<{ id: number; code: string; name: string; is_active: boolean }> | Array<{ id: number; code: string; name: string; is_active: boolean }>>(
+          "/api/inventory/accounting-units/?active_only=1&page_size=500",
+        );
+        const list = Array.isArray(resp) ? resp : resp.results ?? [];
+        if (!cancelled) setAccountingUnits(list);
+      } catch {
+        if (!cancelled) setAccountingUnits([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open]);
 
   const parentCategories = useMemo(
     () => categories.filter(category => category.parent_category == null && category.is_active),
@@ -725,6 +749,7 @@ export function ItemModal({
   const errors = {
     name: touched.has("name") && !form.name.trim() ? "Item name is required." : undefined,
     category: touched.has("category") && !form.category ? "Select a subcategory for this item." : undefined,
+    tracking_type: touched.has("tracking_type") && !form.tracking_type ? "Select a tracking type for this item." : undefined,
     acct_unit: touched.has("acct_unit") && !form.acct_unit.trim() ? "Accounting unit is required." : undefined,
     low_stock_threshold: touched.has("low_stock_threshold") && (!form.low_stock_threshold || !/^\d+$/.test(form.low_stock_threshold) || Number(form.low_stock_threshold) < 1)
       ? "Low-stock threshold must be at least 1."
@@ -742,11 +767,12 @@ export function ItemModal({
   const set = (patch: Partial<ItemFormState>) => setForm(prev => ({ ...prev, ...patch }));
 
   const submit = async () => {
-    setTouched(new Set(["name", "category", "acct_unit", "low_stock_threshold", "description"]));
+    setTouched(new Set(["name", "category", "tracking_type", "acct_unit", "low_stock_threshold", "description"]));
 
     if (
       !form.name.trim() ||
       !form.category ||
+      !form.tracking_type ||
       !form.acct_unit.trim() ||
       !form.low_stock_threshold ||
       !/^\d+$/.test(form.low_stock_threshold) ||
@@ -814,6 +840,17 @@ export function ItemModal({
         form.category || null,
         item?.category_display ?? undefined,
       ),
+    },
+    {
+      name: "tracking_type",
+      label: "Tracking type",
+      type: "select",
+      required: true,
+      readOnly: isEdit && (Number(item?.instance_count ?? 0) > 0 || Number(item?.batch_count ?? 0) > 0),
+      options: [
+        { value: "INDIVIDUAL", label: "Individual Tracking (Serial/QR)" },
+        { value: "QUANTITY", label: "Quantity Based Tracking" },
+      ],
     },
     { name: "acct_unit", label: "Accounting unit", type: "string", required: true },
     { name: "low_stock_threshold", label: "Low-stock threshold", type: "number", required: true },
@@ -944,12 +981,18 @@ export function ItemModal({
                     }))}
                   />
                 </Field>
-                <Field label="Subcategory" required error={errors.category} hint={!parentCategoryId ? "Select a category first." : availableSubcategories.length === 0 ? "This category has no subcategories yet - add one from Categories." : "Tracking type is inherited from the selected subcategory."} copilotField="category">
+                <Field label="Subcategory" required error={errors.category} hint={!parentCategoryId ? "Select a category first." : availableSubcategories.length === 0 ? "This category has no subcategories yet - add one from Categories." : "Pick the tracking type below."} copilotField="category">
                   <ThemedSelect
                     value={form.category}
                     onChange={value => {
                       set({ category: value });
                       setTouched(prev => new Set(prev).add("category"));
+                      // Prefill the tracking type from the category's default if the user hasn't picked one yet.
+                      if (!form.tracking_type) {
+                        const chosen = availableSubcategories.find(c => String(c.id) === value);
+                        const inherited = chosen?.resolved_tracking_type ?? chosen?.tracking_type ?? "";
+                        if (inherited) set({ tracking_type: inherited });
+                      }
                     }}
                     placeholder={parentCategoryId ? "Select subcategory" : "Select category first"}
                     ariaLabel="Subcategory"
@@ -957,14 +1000,74 @@ export function ItemModal({
                     options={availableSubcategories.map(category => ({
                       value: String(category.id),
                       label: category.name,
-                      meta: `${category.code} - ${formatItemLabel(category.resolved_tracking_type ?? category.tracking_type)}`,
+                      meta: category.code,
                     }))}
                   />
                 </Field>
-                <Field label="Accounting unit" required error={errors.acct_unit} copilotField="acct_unit">
-                  <input value={form.acct_unit} onChange={e => set({ acct_unit: e.target.value })} onBlur={() => setTouched(prev => new Set(prev).add("acct_unit"))} placeholder="pcs, units, meters" />
+                <Field
+                  label="Tracking type"
+                  required
+                  error={errors.tracking_type}
+                  hint={(() => {
+                    if (!isEdit) return "Pick Individual (serial/QR per unit) or Quantity (bulk).";
+                    const inst = Number(item?.instance_count ?? 0);
+                    const batch = Number(item?.batch_count ?? 0);
+                    if (inst > 0 || batch > 0) {
+                      const parts = [] as string[];
+                      if (inst > 0) parts.push(`${inst} instance${inst === 1 ? "" : "s"}`);
+                      if (batch > 0) parts.push(`${batch} batch${batch === 1 ? "" : "es"}`);
+                      return `Locked: ${parts.join(" and ")} already exist for this item.`;
+                    }
+                    return "Can't change once instances or batches exist for this item.";
+                  })()}
+                  copilotField="tracking_type"
+                >
+                  <ThemedSelect
+                    value={form.tracking_type}
+                    onChange={value => {
+                      set({ tracking_type: value });
+                      setTouched(prev => new Set(prev).add("tracking_type"));
+                    }}
+                    placeholder="Select tracking type"
+                    ariaLabel="Tracking type"
+                    disabled={isEdit && (Number(item?.instance_count ?? 0) > 0 || Number(item?.batch_count ?? 0) > 0)}
+                    options={[
+                      { value: "INDIVIDUAL", label: "Individual (Serial/QR)" },
+                      { value: "QUANTITY", label: "Quantity (bulk)" },
+                    ]}
+                  />
                 </Field>
-                <Field label="Low-stock threshold" required error={errors.low_stock_threshold} hint="Trigger a warning when total stock reaches this quantity or lower." copilotField="low_stock_threshold">
+                <Field
+                  label="Accounting unit"
+                  required
+                  error={errors.acct_unit}
+                  hint="Can't find your unit? Contact an administrator to add it."
+                  copilotField="acct_unit"
+                >
+                  <ThemedSelect
+                    value={form.acct_unit}
+                    onChange={value => {
+                      set({ acct_unit: value });
+                      setTouched(prev => new Set(prev).add("acct_unit"));
+                    }}
+                    placeholder={accountingUnits.length === 0 ? "Loading units..." : "Select an accounting unit"}
+                    ariaLabel="Accounting unit"
+                    disabled={accountingUnits.length === 0}
+                    options={(() => {
+                      const opts = accountingUnits.map(unit => ({
+                        value: unit.code,
+                        label: unit.code,
+                        meta: unit.name,
+                      }));
+                      // Preserve a legacy value that is not in the current list so edit mode doesn't silently clear it.
+                      if (form.acct_unit && !accountingUnits.some(u => u.code === form.acct_unit)) {
+                        opts.unshift({ value: form.acct_unit, label: form.acct_unit, meta: "legacy unit" });
+                      }
+                      return opts;
+                    })()}
+                  />
+                </Field>
+                <Field label="Low-stock threshold" required error={errors.low_stock_threshold} hint="Triggers a warning when total stock reaches this quantity or lower. If you are not sure, leave it as 1." copilotField="low_stock_threshold">
                   <input
                     type="number"
                     min={1}
@@ -972,7 +1075,7 @@ export function ItemModal({
                     value={form.low_stock_threshold}
                     onChange={e => set({ low_stock_threshold: e.target.value })}
                     onBlur={() => setTouched(prev => new Set(prev).add("low_stock_threshold"))}
-                    placeholder="Enter minimum threshold"
+                    placeholder="1"
                   />
                 </Field>
                 <Field label="Active state" copilotField="is_active">
@@ -1573,7 +1676,7 @@ export function ItemListView() {
   const handleDelete = useCallback(async (item: ItemRecord) => {
     if (!canDeleteItems || busyAction) return;
     if (item.can_delete === false) {
-      setActionError(item.delete_blockers?.join(" ") || "This item cannot be deleted because it is linked to existing records.");
+      setActionError(item.delete_blockers?.map(friendlyMessage).join(" ") || "This item cannot be deleted because it is linked to existing records.");
       return;
     }
     const confirmed = window.confirm(`Delete ${item.name}? This cannot be undone.`);

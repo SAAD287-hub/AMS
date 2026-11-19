@@ -14,6 +14,15 @@ from .models.maintenance_model import (
     MaintenancePlan,
     MaintenanceWorkOrder,
 )
+from .models.accounting_unit_model import AccountingUnit
+
+
+@admin.register(AccountingUnit)
+class AccountingUnitAdmin(admin.ModelAdmin):
+    list_display = ('code', 'name', 'is_active', 'updated_at')
+    list_filter = ('is_active',)
+    search_fields = ('code', 'name')
+    ordering = ('code',)
 
 @admin.register(StockAllocation)
 class StockAllocationAdmin(admin.ModelAdmin):

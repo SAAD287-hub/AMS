@@ -1,13 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ListPagination } from "@/components/ListPagination";
 import { ThemedSelect } from "@/components/ThemedSelect";
 import { Topbar } from "@/components/Topbar";
 import { CategoryModal, type CategoryRecord } from "@/components/CategoryModal";
-import { apiFetch, type Page } from "@/lib/api";
+import { apiFetch, friendlyMessage, type Page } from "@/lib/api";
 import { useCan, useCapabilities } from "@/contexts/CapabilitiesContext";
 import { useCopilotAction } from "@/hooks/useCopilotAction";
 import { useCopilotListControls } from "@/hooks/useCopilotListControls";
@@ -52,7 +51,7 @@ function StatusPill({ active }: { active: boolean }) {
 }
 
 function deleteBlockedMessage(blockers: string[] | undefined, fallback: string) {
-  return blockers && blockers.length > 0 ? blockers.join(" ") : fallback;
+  return blockers && blockers.length > 0 ? blockers.map(friendlyMessage).join(" ") : fallback;
 }
 
 function canDeleteExcludingSubcategories(category: CategoryRecord) {
@@ -123,7 +122,6 @@ function CategoryRow({ category, isChildrenView, childCount, childNames, trackin
           </div>
         </div>
       </td>
-      <td><span className="chip chip-loc mono">{category.code}</span></td>
       <td>
         <div className="group-cell">
           <span className="chip">{formatLabel(resolvedType)}</span>
@@ -277,7 +275,17 @@ export function CategoryListView({ variant, parentId }: CategoryListViewProps) {
   const canDeleteCategories = useCan("categories", "full");
   const [allCategories, setAllCategories] = useState<CategoryRecord[]>([]);
   const [categories, setCategories] = useState<CategoryRecord[]>([]);
-  const [parentCategory, setParentCategory] = useState<CategoryRecord | null>(null);
+  const [selectedParentId, setSelectedParentId] = useState<number | null>(() => {
+    if (variant === "children" && parentId) {
+      const parsed = Number(parentId);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  });
+  const parentCategory = useMemo(
+    () => (selectedParentId == null ? null : allCategories.find(c => c.id === selectedParentId) ?? null),
+    [allCategories, selectedParentId],
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -294,31 +302,13 @@ export function CategoryListView({ variant, parentId }: CategoryListViewProps) {
   const clearFetchError = useCallback(() => setFetchError(null), []);
   const clearActionError = useCallback(() => setActionError(null), []);
 
-  const applyCategoryScope = useCallback((records: CategoryRecord[]) => {
-    if (variant === "children") {
-      const id = Number(parentId);
-      const parent = records.find(category => category.id === id) ?? null;
-      setParentCategory(parent);
-      setCategories(records.filter(category => category.parent_category === id));
-      if (!parent && parentId) {
-        setFetchError("Parent category could not be found.");
-      }
-      return;
-    }
-
-    setParentCategory(null);
-    setCategories(records.filter(category => category.parent_category === null));
-  }, [parentId, variant]);
-
   const loadCategories = useCallback(async ({ showLoading = true }: { showLoading?: boolean } = {}) => {
-    if (variant === "children" && !parentId) return false;
     if (showLoading) setIsLoading(true);
     setFetchError(null);
     try {
       const data = await apiFetch<Page<CategoryRecord> | CategoryRecord[]>("/api/inventory/categories/?page_size=500");
       const records = Array.isArray(data) ? data : data.results;
       setAllCategories(records);
-      applyCategoryScope(records);
       return true;
     } catch (err) {
       setFetchError(err instanceof Error ? err.message : "Failed to load categories");
@@ -326,7 +316,11 @@ export function CategoryListView({ variant, parentId }: CategoryListViewProps) {
     } finally {
       if (showLoading) setIsLoading(false);
     }
-  }, [applyCategoryScope, parentId, variant]);
+  }, []);
+
+  useEffect(() => {
+    setCategories(allCategories.filter(category => (category.parent_category ?? null) === selectedParentId));
+  }, [allCategories, selectedParentId]);
 
   useEffect(() => {
     if (capsLoading) return;
@@ -679,7 +673,6 @@ export function CategoryListView({ variant, parentId }: CategoryListViewProps) {
       ...allCategories.filter(category => category.id !== savedCategory.id),
     ];
     setAllCategories(nextRecords);
-    applyCategoryScope(nextRecords);
     setSearch("");
     setTypeFilter("all");
     setStatusFilter("all");
@@ -687,7 +680,7 @@ export function CategoryListView({ variant, parentId }: CategoryListViewProps) {
     if (!refreshed) {
       setActionError("Category saved, but the list could not be refreshed. Reload to resync the list.");
     }
-  }, [allCategories, applyCategoryScope, loadCategories]);
+  }, [allCategories, loadCategories]);
 
   const handleDelete = useCallback(async (category: CategoryRecord) => {
     if (!canDeleteCategories) {
@@ -726,7 +719,6 @@ export function CategoryListView({ variant, parentId }: CategoryListViewProps) {
       });
       const nextRecords = allCategories.filter(item => item.id !== category.id);
       setAllCategories(nextRecords);
-      applyCategoryScope(nextRecords);
       const refreshed = await loadCategories({ showLoading: false });
       if (!refreshed) {
         setActionError("Category deleted, but the list could not be refreshed. The row has been removed locally; reload to resync the list.");
@@ -736,18 +728,42 @@ export function CategoryListView({ variant, parentId }: CategoryListViewProps) {
     } finally {
       setBusyAction(null);
     }
-  }, [allCategories, applyCategoryScope, busyAction, canDeleteCategories, clearActionError, loadCategories]);
+  }, [allCategories, busyAction, canDeleteCategories, clearActionError, loadCategories]);
 
   const pageBusy = busyAction !== null;
   const deleteBusyCategoryId = busyAction?.kind === "delete" ? busyAction.categoryId : null;
-  const isChildrenView = variant === "children";
+  const isChildrenView = selectedParentId !== null;
   const title = isChildrenView ? (parentCategory?.name ?? "Category") : "Categories";
   const tableLabel = isChildrenView ? "Subcategories list" : "Categories list";
   const createLabel = isChildrenView ? "Add Subcategory" : "Add Category";
   const emptyMessage = isChildrenView ? "No subcategories match the current filters." : "No categories match the current filters.";
   const footerLabel = isChildrenView ? "Direct subcategories" : "Top-level categories";
-  const openCategory = isChildrenView ? undefined : (category: CategoryRecord) => router.push(`/categories/${category.id}`);
+  const openCategory = (category: CategoryRecord) => {
+    setSelectedParentId(category.id);
+  };
   const showTrackingColumn = isChildrenView;
+
+  useEffect(() => {
+    setSearch("");
+    setTypeFilter("all");
+    setStatusFilter("all");
+  }, [selectedParentId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const nextPath = selectedParentId == null ? "/categories" : `/categories/${selectedParentId}`;
+    if (window.location.pathname !== nextPath) {
+      window.history.replaceState(window.history.state, "", nextPath);
+    }
+  }, [selectedParentId]);
+
+  const goUpOneCategory = useCallback(() => {
+    if (parentCategory?.parent_category != null) {
+      setSelectedParentId(parentCategory.parent_category);
+    } else {
+      setSelectedParentId(null);
+    }
+  }, [parentCategory]);
 
   const noun = isChildrenView ? "subcategory" : "category";
   const nounPlural = isChildrenView ? "subcategories" : "categories";
@@ -795,12 +811,17 @@ export function CategoryListView({ variant, parentId }: CategoryListViewProps) {
           </div>
           <div className="page-head-actions">
             {isChildrenView ? (
-              <Button asChild variant="outline" size="sm" className="page-head-back">
-                <Link href="/categories">
+              <>
+                <Button type="button" variant="outline" size="sm" className="page-head-back" onClick={goUpOneCategory}>
                   <Ic d="M19 12H5M12 19l-7-7 7-7" size={12} />
-                  Back to Categories
-                </Link>
-              </Button>
+                  {parentCategory?.parent_category != null ? "Up one level" : "Back to Categories"}
+                </Button>
+                {parentCategory?.parent_category != null && (
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedParentId(null)}>
+                    All categories
+                  </Button>
+                )}
+              </>
             ) : null}
           </div>
         </div>
@@ -895,7 +916,6 @@ export function CategoryListView({ variant, parentId }: CategoryListViewProps) {
                 <thead>
                   <tr>
                     <th>Category</th>
-                    <th>Code</th>
                     <th>Type</th>
                     {showTrackingColumn ? <th>Tracking</th> : <th>Tracking Profile</th>}
                     {showTrackingColumn && <th>Parent</th>}
@@ -908,7 +928,7 @@ export function CategoryListView({ variant, parentId }: CategoryListViewProps) {
                 <tbody>
                   {filteredCategories.length === 0 ? (
                     <tr>
-                      <td colSpan={isChildrenView ? 8 : 8}>
+                      <td colSpan={isChildrenView ? 7 : 7}>
                         <div style={{ padding: "32px 12px", textAlign: "center", color: "var(--text-2)", fontSize: 13 }}>
                           {emptyMessage}
                         </div>

@@ -16,10 +16,12 @@ const STAGE_LABELS: Record<string, string> = {
   REJECTED: "Rejected",
 };
 
+import { ENTRY_DIRECTION_LABEL } from "./stockEntryLabels";
+
 const ENTRY_TYPE_LABELS: Record<string, string> = {
-  RECEIPT: "Receipt",
-  ISSUE: "Issue",
-  RETURN: "Return",
+  RECEIPT: ENTRY_DIRECTION_LABEL.RECEIPT,
+  ISSUE: ENTRY_DIRECTION_LABEL.ISSUE,
+  RETURN: ENTRY_DIRECTION_LABEL.RETURN,
 };
 
 const STATUS_LABELS: Record<string, string> = {

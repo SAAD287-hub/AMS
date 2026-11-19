@@ -11,6 +11,7 @@ import {
   useCopilotVoiceCommand,
 } from "@/contexts/CopilotContext";
 import { buildVoiceTranscriptDraft } from "@/lib/voiceCapture";
+import { friendlyMessage } from "@/lib/api";
 import {
   createDebouncedTranslator,
   translateText,
@@ -247,7 +248,7 @@ export function CopilotVoiceOverlay() {
       setDraftTranscript(draft.text);
       setStatus("idle");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = friendlyMessage(err instanceof Error ? err.message : String(err));
       setError(message);
       setStatus("error");
     }

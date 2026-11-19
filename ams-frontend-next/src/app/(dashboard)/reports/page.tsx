@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Topbar } from "@/components/Topbar";
 import { ThemedSelect, type ThemedSelectOption } from "@/components/ThemedSelect";
 import { ApiError, apiFetch, type Page } from "@/lib/api";
+import { formatStockEntryKind, type EntryType } from "@/lib/stockEntryLabels";
 import { useAuth } from "@/contexts/AuthContext";
 import { ADMIN_PERMISSIONS } from "@/lib/adminPermissions";
 import styles from "./reports.module.css";
@@ -817,7 +818,7 @@ async function pendingAcknowledgementReport(filters?: PendingAcknowledgementFilt
     metrics: [
       { label: "Pending Acknowledgement Entries", value: fmtNumber(pending.length), tone: "amber" },
     ],
-    columns: ["Entry Number", "Entry Date", "Entry Type", "From Location", "To Location", "Issued To Employee", "Item", "Sent Quantity", "Accepted Quantity", "Status", "Created By", "Created At", "Acknowledged By"],
+    columns: ["Entry Number", "Entry Date", "Operation", "Code", "From Location", "To Location", "Issued To Employee", "Item", "Sent Quantity", "Accepted Quantity", "Status", "Created By", "Created At", "Acknowledged By"],
     rows: pending.map(entry => {
       const item = firstItem(entry);
       const sentQty = entry.items.reduce((sum, row) => sum + n(row.quantity), 0);
@@ -825,6 +826,7 @@ async function pendingAcknowledgementReport(filters?: PendingAcknowledgementFilt
       return [
         entry.entry_number,
         fmtDate(entry.entry_date),
+        formatStockEntryKind({ entry_type: entry.entry_type as EntryType }),
         entry.entry_type,
         entry.from_location_name ?? "-",
         entry.to_location_name ?? "-",
@@ -993,8 +995,8 @@ async function movementLedgerReport(filters?: MovementLedgerFilters): Promise<Re
     metrics: [
       { label: "Movement Events", value: fmtNumber(rows.length), tone: "blue" },
       { label: "Quantity Moved", value: fmtNumber(qty), tone: "blue" },
-      { label: "Allocations", value: fmtNumber(rows.filter(row => row.action === "ALLOCATE").length), tone: "green" },
-      { label: "Returns", value: fmtNumber(rows.filter(row => row.action === "RETURN").length), tone: "violet" },
+      { label: "Items issued to employees", value: fmtNumber(rows.filter(row => row.action === "ALLOCATE").length), tone: "green" },
+      { label: "Items returned to store", value: fmtNumber(rows.filter(row => row.action === "RETURN").length), tone: "violet" },
     ],
     columns: ["Timestamp", "Action", "Item", "Batch", "Instance / Serial", "From Location", "To Location", "Quantity", "Stock Entry", "Allocation", "Performed By", "Remarks"],
     rows: rows.map(row => [
@@ -1076,11 +1078,11 @@ function buildStockEntryTraceSteps(certificate: InspectionCertificate): Procurem
   }
 
   return entries.map(entry => ({
-    label: entry.entry_type === "RECEIPT" ? "Receipt completed" : entry.entry_type === "ISSUE" ? "Issue completed" : `Stock entry ${entry.entry_number}`,
+    label: `${formatStockEntryKind({ entry_type: entry.entry_type as EntryType })} completed`,
     value: fmtDate(entry.entry_date),
     timestamp: traceTimestamp(entry.entry_date),
     actor: stockEntryActor(entry, certificate),
-    note: `${entry.entry_number} / ${entry.entry_type} / ${entry.status}`,
+    note: `${entry.entry_number} · ${entry.status}`,
     state: entry.status === "COMPLETED" ? "done" : "current",
   }));
 }

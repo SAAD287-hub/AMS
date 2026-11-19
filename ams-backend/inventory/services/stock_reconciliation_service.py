@@ -156,7 +156,7 @@ class StockReconciliationService:
 
     @classmethod
     def _expected_counts(cls, record):
-        if record.item.category.get_tracking_type() == TrackingType.INDIVIDUAL:
+        if record.item.get_tracking_type() == TrackingType.INDIVIDUAL:
             return cls._expected_individual_counts(record)
         return cls._expected_quantity_counts(record)
 
@@ -304,7 +304,7 @@ class StockReconciliationService:
     def _quantity_pending_over_issue_findings(cls, *, item_id=None, location_id=None):
         findings = []
         for record in cls._stock_records(item_id=item_id, location_id=location_id):
-            if record.item.category.get_tracking_type() == TrackingType.INDIVIDUAL:
+            if record.item.get_tracking_type() == TrackingType.INDIVIDUAL:
                 continue
 
             capacity = max(0, record.quantity - record.allocated_quantity)
@@ -374,7 +374,7 @@ class StockReconciliationService:
         queryset = (
             StockEntryItem.objects
             .filter(
-                item__category__tracking_type=TrackingType.INDIVIDUAL,
+                item__tracking_type=TrackingType.INDIVIDUAL,
                 stock_entry__status__in=['PENDING_ACK', 'COMPLETED'],
             )
             .select_related('stock_entry', 'item', 'stock_entry__from_location')

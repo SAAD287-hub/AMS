@@ -2,11 +2,14 @@ from django.db import models
 from django.contrib.auth.models import User
 from django.contrib.postgres.search import SearchVectorField
 
+from .category_model import TrackingType
+
 
 class Item(models.Model):
     """
     Items must be linked to sub-categories (leaf nodes).
-    Tracking type (Individual vs Quantity) is inherited from the category hierarchy.
+    Tracking type (Individual vs Quantity) is chosen per item; it falls back
+    to the category's tracking_type for legacy rows that don't set their own.
     """
     name = models.CharField(max_length=150)
     code = models.CharField(max_length=50, unique=True, blank=True)
@@ -15,6 +18,13 @@ class Item(models.Model):
         on_delete=models.PROTECT,
         related_name='items',
         help_text="Must be a sub-category (has a parent category)"
+    )
+    tracking_type = models.CharField(
+        max_length=20,
+        choices=TrackingType.choices,
+        null=True,
+        blank=True,
+        help_text="Operational tracking. Chosen per item at creation; falls back to the category if blank.",
     )
     description = models.TextField(blank=True, null=True)
     acct_unit = models.CharField(max_length=255, help_text="Accounting unit/measurement")
@@ -31,6 +41,19 @@ class Item(models.Model):
             raise ValidationError({
                 'category': "Items can only be linked to sub-categories, not top-level categories."
             })
+
+    def get_tracking_type(self):
+        """Return the effective tracking type: per-item override, else category fallback."""
+        if self.tracking_type:
+            return self.tracking_type
+        if self.category_id and self.category:
+            cat_value = self.category.get_tracking_type()
+            if cat_value:
+                return cat_value
+            # Safety walk to parent for mis-seeded trees whose child row has no value.
+            if self.category.parent_category_id and self.category.parent_category:
+                return self.category.parent_category.get_tracking_type()
+        return None
 
     # NOTE: Tracking fields (Total Quantity) are now dynamically calculated 
     # from StockRecord entries in the ViewSets for accuracy and security.

@@ -311,7 +311,7 @@ def capitalize_inspection_item(inspection_item, *, instances=None, batch=None, u
     asset_class = inspection_item.depreciation_asset_class or get_or_create_asset_class_for_item(item, user)
     policy = asset_class.policy or get_default_policy(user)
     cap_date = capitalization_date_for_inspection(inspection_item)
-    tracking_type = item.category.get_tracking_type()
+    tracking_type = item.get_tracking_type()
     created = []
 
     if tracking_type == TrackingType.INDIVIDUAL:

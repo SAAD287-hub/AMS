@@ -10,7 +10,13 @@ class StockRegister(models.Model):
     REGISTER_TYPE_CHOICES = [
         ('CSR', 'Consumable Stock Register'),
         ('DSR', 'Dead Stock Register'),
+        ('FFR', 'Furniture and Fixture Register'),
     ]
+
+    #: Codes that are auto-materialised for every department's main store.
+    #: Keep in lockstep with the bootstrap signal/migration — a code added here
+    #: without wiring the signal will never show up on new departments.
+    DEFAULT_REGISTER_CODES = ('CSR', 'DSR', 'FFR')
 
     register_number = models.CharField(max_length=100)
     register_type = models.CharField(max_length=3, choices=REGISTER_TYPE_CHOICES, default='CSR')

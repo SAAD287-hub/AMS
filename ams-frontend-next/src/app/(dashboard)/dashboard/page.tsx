@@ -26,6 +26,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useCapabilities, type CapabilityLevel } from "@/contexts/CapabilitiesContext";
 import { useNotifications } from "@/contexts/NotificationsContext";
 import { apiFetch, type Page } from "@/lib/api";
+import { formatStockEntryKind } from "@/lib/stockEntryLabels";
 import styles from "./dashboard.module.css";
 
 type ApiList<T> = Page<T> | T[];
@@ -199,7 +200,7 @@ function includesStatus(value: string | null | undefined, terms: string[]) {
 
 function firstItemName(entry: StockEntryRecord) {
   const first = entry.items?.[0]?.item_name;
-  if (!first) return entry.entry_type ? statusText(entry.entry_type) : "Stock movement";
+  if (!first) return entry.entry_type ? formatStockEntryKind(entry) : "Stock movement";
   const extra = (entry.items?.length ?? 0) > 1 ? ` +${(entry.items?.length ?? 1) - 1}` : "";
   return `${first}${extra}`;
 }
@@ -573,7 +574,7 @@ export default function DashboardPage() {
 
   const activityRows: ActivityRow[] = useMemo(() => {
     const stockRows = data.stockEntries.slice(0, 4).map<ActivityRow>(entry => ({
-      kind: statusText(entry.entry_type ?? "Stock entry"),
+      kind: entry.entry_type ? formatStockEntryKind(entry) : "Stock entry",
       subject: `${entry.entry_number ?? `SE-${entry.id}`} - ${firstItemName(entry)}`,
       location: entry.to_location_name ?? entry.from_location_name ?? entry.issued_to_name ?? "Accessible location",
       actor: entry.acknowledged_by_name ?? entry.created_by_name ?? "System",

@@ -981,7 +981,7 @@ def build_user_alerts(user: User) -> list[dict[str, object]]:
         ).count()
         uncapitalized_batches = ItemBatch.objects.filter(
             fixed_asset_category_filter,
-            item__category__tracking_type=TrackingType.QUANTITY,
+            item__tracking_type=TrackingType.QUANTITY,
             fixed_asset_entry__isnull=True,
         ).annotate(quantity=Coalesce(Sum("stock_records__quantity"), Value(0))).filter(quantity__gt=0).count()
         uncapitalized_total = uncapitalized_instances + uncapitalized_batches

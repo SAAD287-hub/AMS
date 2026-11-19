@@ -135,11 +135,6 @@ export function ItemDetailDossierView({ itemId }: { itemId: string }) {
 
   const effectiveScopeTokens = selectedScopeTokens.length ? selectedScopeTokens : defaultScopeTokens;
 
-  const leafCategories = useMemo(
-    () => categories.filter(category => category.parent_category !== null && category.is_active),
-    [categories],
-  );
-
   const loadCategories = useCallback(async () => {
     if (!canManageItems) {
       setCategories([]);
@@ -451,7 +446,7 @@ export function ItemDetailDossierView({ itemId }: { itemId: string }) {
         open={modalOpen}
         mode={editingItem ? "edit" : "create"}
         item={editingItem}
-        categories={leafCategories}
+        categories={categories}
         onClose={closeModal}
         onSave={handleSave}
       />

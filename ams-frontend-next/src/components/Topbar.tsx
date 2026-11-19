@@ -11,7 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth, type AuthUser } from "@/contexts/AuthContext";
 import { useNotifications, type NotificationAlertRecord, type NotificationFeedItem } from "@/contexts/NotificationsContext";
-import { API_BASE, apiFetch } from "@/lib/api";
+import { API_BASE, apiFetch, friendlyMessage } from "@/lib/api";
 import { useObjectUrl } from '@/lib/useObjectUrl';
 import {
   buildNotificationAlertDisplay,
@@ -141,7 +141,7 @@ function ChangePasswordModal({
       });
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to change password.");
+      setError(friendlyMessage(err instanceof Error ? err.message : "Failed to change password."));
     } finally {
       setSubmitting(false);
     }
@@ -274,7 +274,7 @@ function ProfileSettingsModal({
       });
       onSave({ user: saved, preferences: { notificationsEnabled } });
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : "Failed to save profile settings.");
+      setSubmitError(friendlyMessage(err instanceof Error ? err.message : "Failed to save profile settings."));
     } finally {
       setSubmitting(false);
     }

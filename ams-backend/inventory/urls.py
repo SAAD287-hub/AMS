@@ -10,7 +10,7 @@ from .views import (
     DepreciationPolicyViewSet, DepreciationRateVersionViewSet,
     DepreciationRunViewSet, FixedAssetRegisterEntryViewSet,
     MaintenanceMeterReadingViewSet, MaintenancePlanViewSet,
-    MaintenanceWorkOrderViewSet, VendorViewSet,
+    MaintenanceWorkOrderViewSet, VendorViewSet, AccountingUnitViewSet,
 )
 
 router = DefaultRouter()
@@ -39,6 +39,7 @@ router.register(r'depreciation/adjustments', AssetValueAdjustmentViewSet, basena
 router.register(r'maintenance/work-orders', MaintenanceWorkOrderViewSet, basename='maintenance-work-order')
 router.register(r'maintenance/plans', MaintenancePlanViewSet, basename='maintenance-plan')
 router.register(r'maintenance/meter-readings', MaintenanceMeterReadingViewSet, basename='maintenance-meter-reading')
+router.register(r'accounting-units', AccountingUnitViewSet, basename='accounting-unit')
 
 
 

@@ -2,6 +2,19 @@
 from rest_framework import permissions
 
 
+def _is_system_admin(user) -> bool:
+    """A user who is allowed to bypass department-scoped register gates.
+
+    Mirrors the queryset bypass used in stock_register_views.py, so the UI,
+    the permission class, and the view's scoping stay aligned.
+    """
+    if not user or not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return True
+    return user.groups.filter(name="System Admin").exists()
+
+
 def _has_perm(user, codename: str) -> bool:
     dotted = codename if "." in codename else f"inventory.{codename}"
     # Role editors and tests can mutate permissions on an authenticated user
@@ -83,7 +96,12 @@ class EmployeePermission(permissions.BasePermission):
 
 
 class CategoryPermission(permissions.BasePermission):
-    """Domain-permission gate for /api/inventory/categories/."""
+    """Domain-permission gate for /api/inventory/categories/.
+
+    Category creation is restricted to superusers (admins). Edit and delete
+    still honor the domain permissions, but POST will refuse any non-admin
+    even when they hold ``inventory.create_categories``.
+    """
 
     def has_permission(self, request, view):  # type: ignore[override]
         user = request.user
@@ -95,7 +113,7 @@ class CategoryPermission(permissions.BasePermission):
         if request.method in permissions.SAFE_METHODS:
             return _has_perm(user, "inventory.view_categories")
         if request.method == "POST":
-            return _has_perm(user, "inventory.create_categories")
+            return False
         if request.method in {"PUT", "PATCH"}:
             return _has_perm(user, "inventory.edit_categories")
         if request.method == "DELETE":
@@ -185,7 +203,13 @@ class ItemInstancePermission(permissions.BasePermission):
 
 
 class StockRegisterPermission(permissions.BasePermission):
-    """Domain-permission gate for /api/inventory/stock-registers/."""
+    """Domain-permission gate for /api/inventory/stock-registers/.
+
+    Creating and deleting a register is admin-only — the three defaults (CSR,
+    DSR, FFR) are auto-seeded per department, so departments never need to add
+    or remove them. Edit, close, and reopen stay on their domain permissions
+    so department users can still manage register lifecycle on their own store.
+    """
 
     def has_permission(self, request, view):  # type: ignore[override]
         user = request.user
@@ -200,11 +224,13 @@ class StockRegisterPermission(permissions.BasePermission):
             action = getattr(view, "action", None)
             if action in {"close", "reopen"}:
                 return _has_perm(user, "inventory.edit_stock_registers")
-            return _has_perm(user, "inventory.create_stock_registers")
+            # Fresh create — admin only.
+            return _is_system_admin(user)
         if request.method in {"PUT", "PATCH"}:
             return _has_perm(user, "inventory.edit_stock_registers")
         if request.method == "DELETE":
-            return _has_perm(user, "inventory.delete_stock_registers")
+            # Hard delete — admin only.
+            return _is_system_admin(user)
         return False
 
 

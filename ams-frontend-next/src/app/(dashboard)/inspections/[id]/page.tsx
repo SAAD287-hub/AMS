@@ -177,7 +177,13 @@ function StageStatusPill({ inspection }: { inspection: InspectionRecord }) {
 
 function WorkflowTracker({ inspection }: { inspection: InspectionRecord }) {
   const steps = visibleWorkflowSteps(inspection);
-  const rejectedStepLabel = inspection.status === "CANCELLED" ? "Cancelled at this step" : "Rejected at this step";
+  const rejectedStepLabel = inspection.status === "CANCELLED" ? "Cancelled here" : "Rejected here";
+  const stateTextMap: Record<string, string> = {
+    complete: "Done",
+    current: "You're here",
+    pending: "Waiting",
+    rejected: rejectedStepLabel,
+  };
   return (
     <div className="inspection-workflow-strip" style={{ gridTemplateColumns: `repeat(${Math.max(steps.length, 1)}, minmax(0, 1fr))` }}>
       {steps.map((step, index) => (
@@ -189,18 +195,34 @@ function WorkflowTracker({ inspection }: { inspection: InspectionRecord }) {
             <div>
               <div className="inspection-workflow-label">{step.label}</div>
               <div className="inspection-workflow-status">
-                {step.state === "current" ? "Current hand-off" : step.state === "complete" ? "Completed workflow step" : step.state === "rejected" ? rejectedStepLabel : "Pending workflow step"}
+                {stateTextMap[step.state] ?? "Waiting"}
               </div>
             </div>
           </div>
-          <div className="inspection-workflow-owner">{step.ownerLabel ?? "Pending officer"}</div>
+          <div className="inspection-workflow-owner">{step.ownerLabel ?? "Not assigned yet"}</div>
           <div className="inspection-workflow-meta-grid">
-            <span>{step.activityAt ? formatInspectionDateShort(step.activityAt) : "Pending"}</span>
-            <span>{step.state}</span>
+            <span>{step.activityAt ? formatInspectionDateShort(step.activityAt) : "—"}</span>
           </div>
         </div>
       ))}
     </div>
+  );
+}
+
+function HowItWorksStrip({ stageLabel }: { stageLabel: string }) {
+  return (
+    <section className="detail-notice detail-notice-info" style={{ marginBottom: 16 }}>
+      <InspectionIcon d={<><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></>} size={16} />
+      <div className="detail-notice-body">
+        <div className="detail-notice-title">How this page works</div>
+        <div className="detail-notice-text">
+          A certificate moves through 4 steps. You'll see the full timeline just below.
+          Your current step is <strong>{stageLabel}</strong> — scroll down, fill in the form for your step, and press
+          <strong> Submit</strong>. The certificate then moves to the next person automatically.
+          If anything needs fixing, use <strong>Return</strong> to send it back one step.
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -348,8 +370,8 @@ function RegisterTrailCard({ inspection }: { inspection: InspectionRecord }) {
         <div className="inspection-lines-foot">
           <div className="inspection-lines-foot-meta">
             {coverage.requiresStockStage
-              ? "Departmental stock details show the register, page number, and recording date captured before the certificate moved to central register review."
-              : "Root-level inspections skip departmental stock details and only require central register references."}
+              ? "Shows which stock register each accepted item was recorded in — along with its page number and the date — before the certificate moved to central review."
+              : "Central-store inspections only need central register entries. The department step is skipped."}
           </div>
           <div className="inspection-lines-foot-totals">
             {coverage.requiresStockStage ? (
@@ -452,8 +474,8 @@ function StageActionCue({ inspection }: { inspection: InspectionRecord }) {
     <a className="inspection-stage-cue" href="#active-stage-form" aria-label={`Jump to ${stageLabel} form`}>
       <span className="inspection-stage-cue-icon">!</span>
       <span className="inspection-stage-cue-copy">
-        <span className="inspection-stage-cue-title">{stageLabel} requires input</span>
-        <span className="inspection-stage-cue-sub">Jump to the active form before moving this certificate forward.</span>
+        <span className="inspection-stage-cue-title">Your turn: {stageLabel}</span>
+        <span className="inspection-stage-cue-sub">Click here to jump to the form, fill it in, then press Submit.</span>
       </span>
     </a>
   );
@@ -533,7 +555,7 @@ function ActiveStageCard({
         <footer className="detail-card-foot">
           <div className="stage-action-foot">
             <div className="stage-action-foot-meta">
-              Save progress keeps the current stage open. Return asks for a revision reason and sends the certificate back one workflow step without clearing the recorded stage data. Save current edits first if you need to keep them.
+              <strong>Save progress</strong> keeps your changes without moving forward. <strong>Return</strong> sends the certificate back one step with a reason — save your edits first if you want to keep them.
             </div>
             <div className="stage-action-foot-actions">
               {canReturn && returnLabel ? (
@@ -599,9 +621,9 @@ function RelatedStockEntries({ inspection }: { inspection: InspectionRecord }) {
     <section className="detail-card">
       <header className="detail-card-head">
         <div>
-          <h2>Generated stock entries</h2>
+          <h2>Linked stock entries</h2>
         </div>
-        <div className="detail-card-head-meta">{inspection.stock_entries.length} entries</div>
+        <div className="detail-card-head-meta">{inspection.stock_entries.length} entr{inspection.stock_entries.length === 1 ? "y" : "ies"}</div>
       </header>
       <div className="detail-card-body">
         {inspection.stock_entries.length > 0 ? (
@@ -618,7 +640,9 @@ function RelatedStockEntries({ inspection }: { inspection: InspectionRecord }) {
             ))}
           </div>
         ) : (
-          <div className="detail-empty-copy">No stock entries have been generated from this certificate yet.</div>
+          <div className="detail-empty-copy">
+            No stock entries yet. Once the certificate is completed, the accepted items will appear here as stock entries you can open.
+          </div>
         )}
       </div>
     </section>
@@ -1418,7 +1442,7 @@ export default function InspectionDetailPage() {
         ) : null}
 
         {loading ? (
-          <div className="detail-card detail-card-body">Synchronizing lifecycle state...</div>
+          <div className="detail-card detail-card-body">Loading certificate…</div>
         ) : inspection && editableInspection ? (
           <>
             <div className="page-head-detail">
@@ -1474,6 +1498,9 @@ export default function InspectionDetailPage() {
               </div>
             ) : null}
 
+            {inspection.stage !== "COMPLETED" && inspection.stage !== "REJECTED" ? (
+              <HowItWorksStrip stageLabel={getInspectionStageDisplayLabel(inspection)} />
+            ) : null}
             <WorkflowTracker inspection={inspection} />
 
             {inspection.stage === "REJECTED" ? (
@@ -1527,7 +1554,7 @@ export default function InspectionDetailPage() {
             </div>
           </>
         ) : (
-          <div className="detail-card detail-card-body">Entry not found.</div>
+          <div className="detail-card detail-card-body">Certificate not found.</div>
         )}
       </div>
     </div>

@@ -7,12 +7,13 @@ import { Topbar } from "@/components/Topbar";
 import { ListPagination } from "@/components/ListPagination";
 import { ThemedSelect } from "@/components/ThemedSelect";
 import { DropdownPortal } from "@/components/DropdownPortal";
-import { apiFetch, type Page } from "@/lib/api";
+import { apiFetch, friendlyMessage, type Page } from "@/lib/api";
 import { getAllocatableTargetLocations, getAllocatableTargetPersons, getAllocatedReturnLocations, getAllocatedReturnPersons, getSelectableStockEntryStores, type StockAllocationRecord } from "@/lib/stockEntryLocationRules";
 import { getIssueAvailableQuantity, getIssueBatchOptions, getIssueInstanceOptions, getIssueItemOptions, getReturnBatchOptions, getReturnInstanceOptions, getReturnItemOptions, getReturnQuantityLimit, type StockEntryItemInstance, type StockEntryStockRecord, type StockEntryReturnTarget } from "@/lib/stockEntryItemRules";
 import { buildStockEntryPayload, getStockEntryDisplayDirection, getStockEntryRegisterStoreId, getStockEntrySourceRegisterOptions, resolveStockEntrySourceRegisterValue, validateStockEntryForm, type CreatableStockEntryType, type StockEntryFormItem, type StockEntryFormState } from "@/lib/stockEntryFormRules";
 import { applyStockEntryCopilotValuePatch, buildStockEntryCopilotReferenceContext, searchStockEntryCopilotOptions } from "@/lib/stockEntryCopilotForm";
 import { getStockEntryAcknowledgeTarget, getStockEntryMovementRows, getStockEntryMovementStatus, getStockEntryMovementUpdatedEntry } from "@/lib/stockEntryMovementRows";
+import { formatStockEntryKind } from "@/lib/stockEntryLabels";
 import { useCan, useCapabilities } from "@/contexts/CapabilitiesContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCopilotAction } from "@/hooks/useCopilotAction";
@@ -1027,8 +1028,8 @@ function StockEntryModal({ open, mode, entry, refs: baseRefs, refsLoading: baseR
       required: true,
       affects: ["issue_target", "return_source", "from_location", "to_location", "issued_to", "items"],
       options: [
-        { value: "ISSUE", label: "Transfer / Allocation" },
-        { value: "RECEIPT", label: "Receipt / Return" },
+        { value: "ISSUE", label: "Stock Out" },
+        { value: "RECEIPT", label: "Stock In" },
       ],
     },
     {
@@ -1039,9 +1040,9 @@ function StockEntryModal({ open, mode, entry, refs: baseRefs, refsLoading: baseR
       dependsOn: ["entry_type"],
       affects: ["to_location", "issued_to", "items"],
       options: [
-        { value: "STORE", label: "Destination Store" },
-        { value: "LOCATION", label: "Destination Non-store" },
-        { value: "PERSON", label: "Receiving Employee" },
+        { value: "STORE", label: "Another store (Store Transfer)" },
+        { value: "LOCATION", label: "A department (Issue to Department)" },
+        { value: "PERSON", label: "An employee (Issue to Employee)" },
       ],
     },
     {
@@ -1052,13 +1053,13 @@ function StockEntryModal({ open, mode, entry, refs: baseRefs, refsLoading: baseR
       dependsOn: ["entry_type"],
       affects: ["from_location", "issued_to", "items"],
       options: [
-        { value: "PERSON", label: "Returning Employee" },
-        { value: "LOCATION", label: "Returning Non-store" },
+        { value: "PERSON", label: "An employee (Return from Employee)" },
+        { value: "LOCATION", label: "A department or vendor (Return or Vendor Delivery)" },
       ],
     },
     {
       name: "from_location",
-      label: form.entry_type === "ISSUE" ? "Source store" : "Returning non-store",
+      label: form.entry_type === "ISSUE" ? "Source store" : "Department returning stock",
       type: "select",
       required:
         form.entry_type === "ISSUE" ||
@@ -1338,17 +1339,17 @@ function StockEntryModal({ open, mode, entry, refs: baseRefs, refsLoading: baseR
             <div className="stock-entry-help">
               <div className="stock-entry-help-title">How do stock entries work?</div>
               <div className="stock-entry-help-body">
-                A stock entry is the single document that moves items in or out of a store. Pick the entry type that matches what actually happened:
+                A stock entry is the single document that moves items in or out of a store. Pick the direction that matches what actually happened:
               </div>
               <ul className="stock-entry-help-list">
                 <li>
-                  <strong>Transfer / Allocation</strong>: stock is going <em>out</em> of a store. Use this when sending items to another store, allocating to an employee, or dispatching to a non-store location (classroom, lab, site).
+                  <strong>Stock Out</strong>: items are leaving a store. Use this when sending items to another store (Store Transfer), giving them to an employee (Issue to Employee), or dispatching to a department / lab / site (Issue to Department).
                 </li>
                 <li>
-                  <strong>Return Receipt</strong>: stock is coming <em>back into</em> a store. Use this for returns from an employee <em>or</em> for fresh receipts from an external source (vendor / supplier / rejection return). For vendor deliveries, set <em>Return From → Non-store</em> and type the vendor name.
+                  <strong>Stock In</strong>: items are coming into a store. Use this for a new delivery from a vendor (Vendor Delivery), used stock returning from an employee (Return from Employee), or stock returning from a department (Return from Department).
                 </li>
               </ul>
-              <div className="stock-entry-help-foot">The form below reveals exactly the fields you need once you choose the type.</div>
+              <div className="stock-entry-help-foot">The form below reveals exactly the fields you need once you choose the direction.</div>
             </div>
           )}
 
@@ -1357,29 +1358,32 @@ function StockEntryModal({ open, mode, entry, refs: baseRefs, refsLoading: baseR
             title="Movement"
             sub={
               form.entry_type === "ISSUE"
-                ? "Stock is leaving a store. Pick the source store, then tell the system where (or to whom) it's going."
-                : "Stock is coming back into a store. Pick the receiving store, then tell the system who it's returning from (an employee) or where it's arriving from (a non-store source such as a vendor)."
+                ? "Items are leaving a store. Pick the source store, then tell the system where (or to whom) they are going."
+                : "Items are coming into a store. Pick the receiving store, then tell the system who they are coming from — an employee, a department, or a vendor."
             }
           >
             <div className="form-grid cols-2">
-              <Field label="Entry Type" required hint="Transfer = stock out of a store. Return Receipt = stock into a store (employee return OR vendor delivery).">
+              <Field label="What is this entry?" required hint="Stock Out = items leaving your store. Stock In = items arriving at your store (vendor delivery or a return).">
                 <ThemedSelect
                   value={form.entry_type}
                   onChange={value => update("entry_type", value as CreatableStockEntryType)}
                   options={[
-                    { value: "ISSUE", label: "Transfer / Allocation (outgoing)" },
-                    { value: "RECEIPT", label: "Return Receipt (incoming)" },
+                    { value: "ISSUE", label: "Stock Out (items leaving the store)" },
+                    { value: "RECEIPT", label: "Stock In (items arriving at the store)" },
                   ]}
-                  ariaLabel="Select stock entry type"
+                  ariaLabel="Select stock entry direction"
                 />
               </Field>
               {form.entry_type === "ISSUE" ? (
                 <>
-                  <Field label="Issue To" required hint="Store = move stock to another store. Non-store = dispatch to a lab/classroom/site (no store there). Person = allocate to an employee.">
+                  <Field label="Where is it going?" required hint="Another store = Store Transfer (requires acknowledgement). Department = dispatch to a lab, classroom or site. Employee = give it to a named person.">
                     <div className="seg seg-inline">
-                      {(["STORE", "LOCATION", "PERSON"] as const).map(option => (
-                        <button key={option} type="button" className={"seg-btn" + (form.issue_target === option ? " active" : "")} onClick={() => update("issue_target", option)}>{option === "LOCATION" ? "Non-store" : formatLabel(option)}</button>
-                      ))}
+                      {(["STORE", "LOCATION", "PERSON"] as const).map(option => {
+                        const label = option === "STORE" ? "Another store" : option === "LOCATION" ? "Department" : "Employee";
+                        return (
+                          <button key={option} type="button" className={"seg-btn" + (form.issue_target === option ? " active" : "")} onClick={() => update("issue_target", option)}>{label}</button>
+                        );
+                      })}
                     </div>
                   </Field>
                   <Field label="Source Store" required error={errors.from_location} hint="The store that currently holds the stock. Only stores can send stock.">
@@ -1406,7 +1410,7 @@ function StockEntryModal({ open, mode, entry, refs: baseRefs, refsLoading: baseR
                       />
                     </Field>
                   ) : (
-                    <Field label={form.issue_target === "LOCATION" ? "Destination Non-store" : "Destination Store"} required error={errors.to_location}>
+                    <Field label={form.issue_target === "LOCATION" ? "Destination Department" : "Destination Store"} required error={errors.to_location}>
                       <SearchableSelect
                         value={form.to_location}
                         options={issueLocationOptions.map(locationOption)}
@@ -1421,10 +1425,10 @@ function StockEntryModal({ open, mode, entry, refs: baseRefs, refsLoading: baseR
                 </>
               ) : (
                 <>
-                  <Field label="Return From" required hint="Employee = used stock coming back from a person. Non-store = fresh delivery from a vendor, supplier or any external source.">
+                  <Field label="Where is it coming from?" required hint="Employee = used stock returning from a person. Department = stock returning from a lab, classroom or site. Vendor = a fresh delivery from an outside supplier.">
                     <div className="seg seg-inline">
                       {(["PERSON", "LOCATION"] as const).map(option => (
-                        <button key={option} type="button" className={"seg-btn" + (form.return_source === option ? " active" : "")} onClick={() => update("return_source", option)}>{option === "LOCATION" ? "Non-store / Vendor" : "Employee"}</button>
+                        <button key={option} type="button" className={"seg-btn" + (form.return_source === option ? " active" : "")} onClick={() => update("return_source", option)}>{option === "LOCATION" ? "Department / Vendor" : "Employee"}</button>
                       ))}
                     </div>
                   </Field>
@@ -1440,7 +1444,7 @@ function StockEntryModal({ open, mode, entry, refs: baseRefs, refsLoading: baseR
                     />
                   </Field>
                   {form.return_source === "PERSON" ? (
-                    <Field label="Returning Employee" required error={errors.issued_to} hint="Only employees who currently have active allocations from the receiving store are listed.">
+                    <Field label="Employee returning stock" required error={errors.issued_to} hint="Only employees who currently have active allocations from the receiving store are listed.">
                       <SearchableSelect
                         value={form.issued_to}
                         options={receiptPersonOptions.map(personOption)}
@@ -1452,7 +1456,7 @@ function StockEntryModal({ open, mode, entry, refs: baseRefs, refsLoading: baseR
                       />
                     </Field>
                   ) : (
-                    <Field label="Source vendor" required error={errors.vendor ?? errors.from_location} hint="Pick the vendor / supplier the stock is coming from. Manage vendors on the Vendors page.">
+                    <Field label="Vendor (new delivery)" required error={errors.vendor ?? errors.from_location} hint="Pick the vendor or supplier the stock is coming from. Manage vendors on the Vendors page.">
                       <SearchableSelect
                         value={form.vendor}
                         options={refs.vendors.map(v => ({ value: String(v.id), label: v.name, meta: v.code }))}
@@ -2037,7 +2041,7 @@ export function StockEntriesView() {
   const handleDelete = async (entry: StockEntryRecord) => {
     if (!canDelete || busyAction) return;
     if (entry.can_delete === false) {
-      setActionError(entry.delete_blockers?.join(" ") || "This stock entry cannot be deleted because it is linked to existing records.");
+      setActionError(entry.delete_blockers?.map(friendlyMessage).join(" ") || "This stock entry cannot be deleted because it is linked to existing records.");
       return;
     }
     const confirmed = window.confirm(`Delete draft ${entry.entry_number}? This cannot be undone.`);
@@ -2182,20 +2186,21 @@ export function StockEntriesView() {
           <div className="table-card">
             <div className="table-card-head">
               <div className="table-card-head-left">
-                <div className="eyebrow">Stock movement ledger</div>
+                <div className="eyebrow">Stock register</div>
                 <div className="table-count"><span className="mono">{entryCount}</span><span>entries</span></div>
               </div>
             </div>
             {isLoading ? <div style={{ padding: 32, textAlign: "center", color: "var(--muted)", borderTop: "1px solid var(--hairline)" }}>Loading stock entries…</div> : (
               <div className="h-scroll">
                 <table className="data-table">
-                  <thead><tr><th>Entry</th><th>Source</th><th>Destination</th><th>Items</th><th>Status</th><th>Created</th><th>Updated</th></tr></thead>
+                  <thead><tr><th>Entry</th><th>Operation</th><th>Source</th><th>Destination</th><th>Items</th><th>Status</th><th>Created</th><th>Updated</th></tr></thead>
                   <tbody>
-                    {filteredEntries.length === 0 ? <tr><td colSpan={7}><div style={{ padding: "32px 12px", textAlign: "center", color: "var(--text-2)", fontSize: 13 }}>No stock entries match the current filters.</div></td></tr> : pagedEntries.map(row => {
+                    {filteredEntries.length === 0 ? <tr><td colSpan={8}><div style={{ padding: "32px 12px", textAlign: "center", color: "var(--text-2)", fontSize: 13 }}>No stock entries match the current filters.</div></td></tr> : pagedEntries.map(row => {
                       const updatedEntry = getStockEntryMovementUpdatedEntry(row.entry, row.receipt);
                       return (
                         <tr key={row.entry.id} onClick={() => router.push(`/stock-entries/${row.entry.id}`)} style={{ cursor: "pointer" }}>
                           <td><div className="user-cell"><div><div className="user-name">{row.entry.entry_number}</div><div className="user-username mono">{formatDate(row.entry.entry_date)}</div></div></div></td>
+                          <td><span className="chip">{formatStockEntryKind(row.entry)}</span></td>
                           <td>{entrySource(row.entry)}</td>
                           <td>{entryTarget(row.entry)}</td>
                           <td><div className="group-cell">{row.entry.items.slice(0, 2).map(item => <span key={`${row.entry.id}-${item.id ?? item.item}`} className="chip">{item.item_name ?? `Item ${item.item}`} × {item.quantity}</span>)}{row.entry.items.length > 2 && <span className="muted-note mono">+{row.entry.items.length - 2} more</span>}</div></td>
@@ -2234,7 +2239,7 @@ export function StockEntriesView() {
                 </div>
                 <div className="user-card-name">{row.entry.entry_number}</div>
                 <div className="user-card-meta mono">{formatDate(row.entry.entry_date)}</div>
-                <div className="user-card-section"><div className="eyebrow">Movement</div><div style={{ fontSize: 13, color: "var(--text-1)" }}>{entrySource(row.entry)} → {entryTarget(row.entry)}</div></div>
+                <div className="user-card-section"><div className="eyebrow">{formatStockEntryKind(row.entry)}</div><div style={{ fontSize: 13, color: "var(--text-1)" }}>{entrySource(row.entry)} → {entryTarget(row.entry)}</div></div>
                 <div className="user-card-section"><div className="eyebrow">Line Items</div><div className="group-cell">{row.entry.items.slice(0, 3).map(item => <span key={`${row.entry.id}-card-${item.id ?? item.item}`} className="chip">{item.item_name ?? `Item ${item.item}`} × {item.quantity}</span>)}</div></div>
                 <div className="user-card-foot"><div><div className="eyebrow">Updated</div><div className="user-card-last mono">{relTime(getStockEntryMovementUpdatedEntry(row.entry, row.receipt).updated_at ?? row.entry.created_at)}</div></div><RowActions entry={row.entry} acknowledgeEntry={row.receipt} canEdit={canManage} canDelete={canDelete} pageBusy={pageBusy} deleteBusy={deleteBusyId === row.entry.id} ackBusy={ackBusyId === row.actionEntry.id} onEdit={() => openEditModal(row.entry)} onDelete={() => handleDelete(row.entry)} onAcknowledge={handleAcknowledge} /></div>
               </div>

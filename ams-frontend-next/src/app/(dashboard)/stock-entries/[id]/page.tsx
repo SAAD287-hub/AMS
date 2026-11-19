@@ -17,6 +17,7 @@ import {
   type CorrectionMode,
 } from "@/lib/stockEntryCorrectionRules";
 import { getStockEntryDisplayDirection } from "@/lib/stockEntryFormRules";
+import { formatStockEntryKind } from "@/lib/stockEntryLabels";
 
 type EntryType = "RECEIPT" | "ISSUE" | "RETURN";
 type EntryStatus = "DRAFT" | "PENDING_ACK" | "COMPLETED" | "REJECTED" | "CANCELLED";
@@ -436,7 +437,7 @@ function RelatedEntryLink({ entry, label }: { entry: StockEntryRecord; label: st
     <Link href={`/stock-entries/${entry.id}`} style={{ display: "grid", gap: 3, padding: "8px 0", borderBottom: "1px solid var(--hairline)", color: "inherit", textDecoration: "none" }}>
       <div className="eyebrow">{label}</div>
       <div style={{ color: "var(--ink)", fontWeight: 550 }}>{entry.entry_number}</div>
-      <div className="login-cell-sub mono">{formatLabel(entry.entry_type)} / {formatLabel(entry.status)}</div>
+      <div className="login-cell-sub mono">{formatStockEntryKind(entry)} / {formatLabel(entry.status)}</div>
     </Link>
   );
 }
@@ -613,8 +614,8 @@ function HeroStrip({ entry }: { entry: StockEntryRecord }) {
             </span>
           </div>
 
-          <div className="stock-movement-mid" aria-label={`${formatLabel(entry.entry_type)} movement`}>
-            <span>{formatLabel(entry.entry_type)}</span>
+          <div className="stock-movement-mid" aria-label={`${formatStockEntryKind(entry)} movement`}>
+            <span>{formatStockEntryKind(entry)}</span>
             <Ic d="M5 12h14M13 5l7 7-7 7" size={16} />
           </div>
 
@@ -760,7 +761,7 @@ function StockStats({ entry, related }: { entry: StockEntryRecord; related: Rela
       <div className="stat">
         <div className="stat-label">{quantityLabel(entry)}</div>
         <div className="stat-value">{stats.sent}</div>
-        <div className="stat-sub">Original {formatLabel(entry.entry_type).toLowerCase()} quantity</div>
+        <div className="stat-sub">Original {formatStockEntryKind(entry).toLowerCase()} quantity</div>
       </div>
       <div className="stat">
         <div className="stat-label">Acknowledged</div>
@@ -930,7 +931,7 @@ function RoutingPanel({ entry, related }: { entry: StockEntryRecord; related: Re
         <div className="person">{creationVerb} {sourcePerson}</div>
       </div>
       <div className="routing-arrow">
-        <span className="arrow">{formatLabel(entry.entry_type)} <Ic d="M5 12h14M13 5l7 7-7 7" size={15} /></span>
+        <span className="arrow">{formatStockEntryKind(entry)} <Ic d="M5 12h14M13 5l7 7-7 7" size={15} /></span>
       </div>
       <div className="routing-end">
         <div className="role">To · {entryTargetRole(entry)}</div>
@@ -1119,7 +1120,7 @@ function VoucherDetailsCard({ entry, related }: { entry: StockEntryRecord; relat
       <div className="card-head"><h3>Voucher details</h3></div>
       <div className="card-body">
         <div className="kv-grid cols-3">
-          <div className="kv"><div className="kv-label">Document type</div><div className="kv-value">{formatLabel(entry.entry_type)} voucher</div><div className="kv-sub">{entry.entry_type}</div></div>
+          <div className="kv"><div className="kv-label">Document type</div><div className="kv-value">{formatStockEntryKind(entry)} voucher</div><div className="kv-sub">{entry.entry_type}</div></div>
           <div className="kv"><div className="kv-label">Voucher number</div><div className="kv-value mono">{entry.entry_number}</div></div>
           <div className="kv"><div className="kv-label">{entryDateVerb(entry)} on</div><div className="kv-value">{formatDate(entry.entry_date)}</div></div>
           <div className="kv"><div className="kv-label">Created by</div><div className="kv-value">{entry.created_by_name ?? "Unknown"}</div><div className="kv-sub">{formatDate(entry.created_at)}</div></div>
@@ -1206,7 +1207,7 @@ function AsideSummaryCard({ entry, related }: { entry: StockEntryRecord; related
       <div className="card-body card-body-tight" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <div className="kv">
           <div className="kv-label">Entry Type</div>
-          <div className="kv-value">{formatLabel(entry.entry_type)}</div>
+          <div className="kv-value">{formatStockEntryKind(entry)}</div>
           <div className="kv-sub">{summary.stripNote}</div>
         </div>
         <div className="kv">
@@ -1273,7 +1274,7 @@ function WorkflowHistoryCard({ entry, related }: { entry: StockEntryRecord; rela
           <div className="tl-dot info" />
           <div className="tl-content">
             <div className="tl-title"><span className="who">{entry.created_by_name ?? "Unknown"}</span> {firstStepTitle}</div>
-            <div className="tl-meta"><span>{formatLabel(entry.entry_type)}</span><span className="dot-sep">·</span><span className="when">{formatDate(entry.created_at)}</span></div>
+            <div className="tl-meta"><span>{formatStockEntryKind(entry)}</span><span className="dot-sep">·</span><span className="when">{formatDate(entry.created_at)}</span></div>
           </div>
         </div>
         <div className="tl-item">

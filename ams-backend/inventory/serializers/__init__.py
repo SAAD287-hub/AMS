@@ -24,3 +24,4 @@ from .maintenance_serializer import (
     MaintenancePlanSerializer,
     MaintenanceWorkOrderSerializer,
 )
+from .accounting_unit_serializer import AccountingUnitSerializer

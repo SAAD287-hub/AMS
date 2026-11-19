@@ -11,12 +11,12 @@ import { useCan, useCapabilities } from "@/contexts/CapabilitiesContext";
 import { useCopilotAction } from "@/hooks/useCopilotAction";
 import { useCopilotListControls } from "@/hooks/useCopilotListControls";
 import { useCopilotReadable } from "@/hooks/useCopilotReadable";
-import { apiFetch, type Page } from "@/lib/api";
+import { apiFetch, friendlyMessage, type Page } from "@/lib/api";
 import { buildCopilotListContext } from "@/lib/copilotPageContext";
 import { consumePendingOpen, SAME_PAGE_OPEN_EVENT } from "@/lib/copilotPendingAction";
 import { useClientPagination } from "@/lib/listPagination";
 import { filterStockRegisters, getCreatableStockRegisterStoreOptions } from "@/lib/stockRegisterUi";
-import { relTime, formatListSummary, type LocationRecord, type StockRegisterRecord } from "@/lib/userUiShared";
+import { relTime, formatListSummary, registerTypeFullName, type LocationRecord, type StockRegisterRecord } from "@/lib/userUiShared";
 import { Button } from "@/components/ui/button";
 
 
@@ -176,6 +176,7 @@ function StockRegisterRow({
   onDelete,
   onClose,
   onReopen,
+  onOpen,
 }: {
   register: StockRegisterRecord;
   canEdit: boolean;
@@ -186,9 +187,10 @@ function StockRegisterRow({
   onDelete: () => void;
   onClose: () => void;
   onReopen: () => void;
+  onOpen: () => void;
 }) {
   return (
-    <tr>
+    <tr onClick={onOpen} style={{ cursor: "pointer" }}>
       <td className="col-user">
         <div className="user-cell">
           <div>
@@ -197,7 +199,7 @@ function StockRegisterRow({
           </div>
         </div>
       </td>
-      <td><span className="chip">{register.register_type === "CSR" ? "Consumable" : "Dead Stock"}</span></td>
+      <td><span className="chip" title={registerTypeFullName(register.register_type)}>{register.register_type}</span></td>
       <td><span className="chip chip-loc">{register.store_name ?? "Unknown store"}</span></td>
       <td><StatusPill active={register.is_active} /></td>
       <td className="col-login"><TimestampCell value={register.updated_at} fallback="Unknown" /></td>
@@ -227,6 +229,7 @@ function StockRegisterCard({
   onDelete,
   onClose,
   onReopen,
+  onOpen,
 }: {
   register: StockRegisterRecord;
   canEdit: boolean;
@@ -237,14 +240,15 @@ function StockRegisterCard({
   onDelete: () => void;
   onClose: () => void;
   onReopen: () => void;
+  onOpen: () => void;
 }) {
   return (
-    <div className="user-card">
+    <div className="user-card" onClick={onOpen} style={{ cursor: "pointer" }}>
       <div className="user-card-head">
         <StatusPill active={register.is_active} />
       </div>
       <div className="user-card-name">{register.register_number}</div>
-      <div className="user-card-meta mono">{register.register_type === "CSR" ? "Consumable Stock Register" : "Dead Stock Register"}</div>
+      <div className="user-card-meta mono" title={registerTypeFullName(register.register_type)}>{register.register_type}</div>
       <div className="user-card-section">
         <div className="eyebrow">Store</div>
         <div style={{ fontSize: 13, color: "var(--text-1)" }}>{register.store_name ?? "Unknown store"}</div>
@@ -396,6 +400,75 @@ function RegisterLifecycleModal({
   );
 }
 
+type DepartmentGroup = {
+  key: string;
+  department: { id: number | null; name: string };
+  registers: StockRegisterRecord[];
+};
+
+function deptKeyOf(register: StockRegisterRecord): string {
+  return register.department ? String(register.department.id) : "__unassigned__";
+}
+
+function DepartmentCard({ group, onOpen }: { group: DepartmentGroup; onOpen: () => void }) {
+  const typeCounts = group.registers.reduce<Record<string, number>>((acc, r) => {
+    acc[r.register_type] = (acc[r.register_type] ?? 0) + 1;
+    return acc;
+  }, {});
+  const activeCount = group.registers.filter(r => r.is_active).length;
+  const closedCount = group.registers.length - activeCount;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="table-card"
+      style={{
+        textAlign: "left",
+        padding: 16,
+        cursor: "pointer",
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+        border: "1px solid var(--border)",
+        background: "var(--surface-1)",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 8,
+              background: "var(--accent-weak)",
+              color: "var(--accent)",
+              display: "grid",
+              placeItems: "center",
+              flexShrink: 0,
+            }}
+          >
+            <Ic d="M3 21h18M5 21V7l7-4 7 4v14M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01" size={18} />
+          </div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text-1)" }}>
+            {group.department.name}
+          </div>
+        </div>
+        <Ic d="M9 6l6 6-6 6" size={14} />
+      </div>
+      <div className="eyebrow mono">
+        {group.registers.length} register{group.registers.length === 1 ? "" : "s"} · {activeCount} active{closedCount ? ` · ${closedCount} closed` : ""}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {Object.entries(typeCounts).map(([code, count]) => (
+          <span key={code} className="chip" title={registerTypeFullName(code)}>
+            {code} · {count}
+          </span>
+        ))}
+      </div>
+    </button>
+  );
+}
+
 export function StockRegisterListView() {
   const router = useRouter();
   const { user } = useAuth();
@@ -403,6 +476,13 @@ export function StockRegisterListView() {
   const canViewRegisters = useCan("stock-registers");
   const canManageRegisters = useCan("stock-registers", "manage");
   const canDeleteRegisters = useCan("stock-registers", "full");
+  // Create/delete are admin-only — mirror the backend StockRegisterPermission
+  // which requires is_superuser OR the "System Admin" group. The three defaults
+  // (CSR / DSR / FFR) are auto-seeded per department, so department users
+  // never need to add or remove registers.
+  const isSystemAdmin = Boolean(user?.is_superuser) || Boolean(user?.groups_display?.includes("System Admin"));
+  const canCreateRegister = isSystemAdmin;
+  const canDeleteRegister = isSystemAdmin;
 
   const [registers, setRegisters] = useState<StockRegisterRecord[]>([]);
   const [locations, setLocations] = useState<LocationRecord[]>([]);
@@ -426,6 +506,7 @@ export function StockRegisterListView() {
   const [statusModal, setStatusModal] = useState<{ mode: "close" | "reopen"; register: StockRegisterRecord } | null>(null);
   const [busyAction, setBusyAction] = useState<{ kind: "delete" | "close" | "reopen"; registerId: number } | null>(null);
   const [lifecycleError, setLifecycleError] = useState<string | null>(null);
+  const [selectedDeptKey, setSelectedDeptKey] = useState<string | null>(null);
 
   const clearActionError = useCallback(() => setActionError(null), []);
 
@@ -485,7 +566,7 @@ export function StockRegisterListView() {
   const handleDelete = useCallback(async (register: StockRegisterRecord) => {
     if (busyAction) return;
     if (register.can_delete === false) {
-      setActionError(register.delete_blockers?.join(" ") || "This stock register cannot be deleted because it is linked to existing records.");
+      setActionError(register.delete_blockers?.map(friendlyMessage).join(" ") || "This stock register cannot be deleted because it is linked to existing records.");
       return;
     }
     const confirmed = window.confirm(`Delete ${register.register_number}? This cannot be undone.`);
@@ -536,10 +617,63 @@ export function StockRegisterListView() {
     }
   }, [busyAction, clearActionError, loadRegisters, statusModal]);
 
-  const filteredRegisters = useMemo(
-    () => filterStockRegisters(registers, { search: debouncedSearch, typeFilter, statusFilter }),
-    [registers, debouncedSearch, typeFilter, statusFilter],
-  );
+  const departmentGroups = useMemo<DepartmentGroup[]>(() => {
+    const buckets = new Map<string, DepartmentGroup>();
+    registers.forEach(register => {
+      const key = deptKeyOf(register);
+      const name = register.department?.name ?? "Unassigned";
+      const existing = buckets.get(key);
+      if (existing) {
+        existing.registers.push(register);
+      } else {
+        buckets.set(key, {
+          key,
+          department: { id: register.department?.id ?? null, name },
+          registers: [register],
+        });
+      }
+    });
+    const list = Array.from(buckets.values());
+    list.sort((a, b) => {
+      if (a.department.id === null && b.department.id !== null) return 1;
+      if (b.department.id === null && a.department.id !== null) return -1;
+      return a.department.name.localeCompare(b.department.name);
+    });
+    list.forEach(group => {
+      group.registers.sort((a, b) => a.register_number.localeCompare(b.register_number));
+    });
+    return list;
+  }, [registers]);
+
+  const departmentView = useMemo(() => {
+    const query = debouncedSearch.trim().toLowerCase();
+    if (!query) return departmentGroups;
+    return departmentGroups.filter(group => group.department.name.toLowerCase().includes(query));
+  }, [departmentGroups, debouncedSearch]);
+
+  const selectedGroup = useMemo(() => {
+    if (!selectedDeptKey) return null;
+    return departmentGroups.find(group => group.key === selectedDeptKey) ?? null;
+  }, [departmentGroups, selectedDeptKey]);
+
+  useEffect(() => {
+    if (selectedDeptKey && !selectedGroup && !isLoading) {
+      setSelectedDeptKey(null);
+    }
+  }, [selectedDeptKey, selectedGroup, isLoading]);
+
+  useEffect(() => {
+    setSearch("");
+    setTypeFilter("all");
+    setStatusFilter("all");
+    // Reset list-view filters whenever the user enters or leaves a department
+    // so a stale search typed in one view doesn't silently filter the other.
+  }, [selectedDeptKey]);
+
+  const filteredRegisters = useMemo(() => {
+    if (!selectedGroup) return [];
+    return filterStockRegisters(selectedGroup.registers, { search: debouncedSearch, typeFilter, statusFilter });
+  }, [selectedGroup, debouncedSearch, typeFilter, statusFilter]);
 
   const {
     page,
@@ -574,6 +708,7 @@ export function StockRegisterListView() {
           { value: "all", label: "All types" },
           { value: "CSR", label: "Consumable" },
           { value: "DSR", label: "Dead Stock" },
+          { value: "FFR", label: "Furniture & Fixture" },
         ],
         setValue: value => setTypeFilter(String(value ?? "all")),
       },
@@ -624,14 +759,14 @@ export function StockRegisterListView() {
       detail_route: `/stock-registers/${register.id}`,
       available_actions: {
         edit: canManageRegisters,
-        delete: canDeleteRegisters && register.can_delete !== false,
+        delete: canDeleteRegister && register.can_delete !== false,
         close: canManageRegisters && register.is_active,
         reopen: canManageRegisters && !register.is_active,
       },
     })),
     actions: {
       ...stockRegisterListControls,
-      create_stock_register: canManageRegisters,
+      create_stock_register: canCreateRegister,
     },
     loading: isLoading || capsLoading || storesLoading,
     extra: {
@@ -676,7 +811,7 @@ export function StockRegisterListView() {
     description:
       "Open the Create Stock Register modal on the Stock Registers page before filling a new stock-register ledger.",
     parameters: {},
-    allowed: canManageRegisters,
+    allowed: canCreateRegister,
     enabled: true,
     requiredCapabilities: [{ module: "stock-registers", level: "manage" }],
     handler: () => {
@@ -686,21 +821,21 @@ export function StockRegisterListView() {
   });
 
   useEffect(() => {
-    if (consumePendingOpen("stock_register_create") && canManageRegisters) {
+    if (consumePendingOpen("stock_register_create") && canCreateRegister) {
       openCreateModal();
     }
-  }, [canManageRegisters, openCreateModal]);
+  }, [canCreateRegister, openCreateModal]);
 
   useEffect(() => {
     const onOpen = (event: Event) => {
       const detail = (event as CustomEvent<{ formId?: string }>).detail;
       if (detail?.formId !== "stock_register_create") return;
-      if (!canManageRegisters) return;
+      if (!canCreateRegister) return;
       openCreateModal();
     };
     window.addEventListener(SAME_PAGE_OPEN_EVENT, onOpen);
     return () => window.removeEventListener(SAME_PAGE_OPEN_EVENT, onOpen);
-  }, [canManageRegisters, openCreateModal]);
+  }, [canCreateRegister, openCreateModal]);
 
   return (
     <div data-density={density}>
@@ -726,7 +861,22 @@ export function StockRegisterListView() {
         <div className="page-head">
           <div className="page-title-group">
             <h1>Stock Registers</h1>
+            <div className="muted-note" style={{ marginTop: 4 }}>
+              {selectedGroup
+                ? `Registers under ${selectedGroup.department.name}. Open a register to see its stock entries.`
+                : "Pick a department to see its registers."}
+            </div>
           </div>
+          {selectedGroup && (
+            <Button type="button" variant="outline" size="sm" onClick={() => setSelectedDeptKey(null)}>
+              <Ic d="M15 18l-6-6 6-6" size={12} />
+              <span>All departments</span>
+            </Button>
+          )}
+        </div>
+
+        <div style={{ fontSize: 13, color: "var(--muted)", margin: "4px 0 12px" }}>
+          Three default registers — Consumable (CSR), Dead Stock (DSR), and Furniture & Fixture (FFR) — are created automatically for every department. Only a system admin can add new ones.
         </div>
 
         <div className="filter-bar">
@@ -734,7 +884,7 @@ export function StockRegisterListView() {
             <label className="search-input">
               <Ic d={<><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></>} size={14} />
               <input
-                placeholder="Search by register number, type, or store…"
+                placeholder={selectedGroup ? "Search by register number, type, or store…" : "Search departments…"}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 onClick={e => { if (!e.currentTarget.value) e.currentTarget.setSelectionRange(0, 0); }}
@@ -743,52 +893,61 @@ export function StockRegisterListView() {
               {search && <button type="button" className="clear-search" onClick={e => { e.preventDefault(); setSearch(""); }}>×</button>}
             </label>
 
-            <div className="filter-select-group">
-              <div className="chip-filter-label">Type</div>
-              <div className="filter-select-wrap">
-                <ThemedSelect
-                  value={typeFilter}
-                  onChange={setTypeFilter}
-                  size="compact"
-                  ariaLabel="Filter stock registers by type"
-                  options={[
-                    { value: "all", label: "All types" },
-                    { value: "CSR", label: "Consumable" },
-                    { value: "DSR", label: "Dead Stock" },
-                  ]}
-                />
-              </div>
-            </div>
+            {selectedGroup && (
+              <>
+                <div className="filter-select-group">
+                  <div className="chip-filter-label">Type</div>
+                  <div className="filter-select-wrap">
+                    <ThemedSelect
+                      value={typeFilter}
+                      onChange={setTypeFilter}
+                      size="compact"
+                      ariaLabel="Filter stock registers by type"
+                      options={[
+                        { value: "all", label: "All types" },
+                        { value: "CSR", label: "Consumable" },
+                        { value: "DSR", label: "Dead Stock" },
+                        { value: "FFR", label: "Furniture & Fixture" },
+                      ]}
+                    />
+                  </div>
+                </div>
 
-            <div className="filter-select-group">
-              <div className="chip-filter-label">Status</div>
-              <div className="filter-select-wrap">
-                <ThemedSelect
-                  value={statusFilter}
-                  onChange={setStatusFilter}
-                  size="compact"
-                  ariaLabel="Filter stock registers by status"
-                  options={[
-                    { value: "all", label: "All statuses" },
-                    { value: "active", label: "Active" },
-                    { value: "inactive", label: "Disabled" },
-                  ]}
-                />
-              </div>
-            </div>
+                <div className="filter-select-group">
+                  <div className="chip-filter-label">Status</div>
+                  <div className="filter-select-wrap">
+                    <ThemedSelect
+                      value={statusFilter}
+                      onChange={setStatusFilter}
+                      size="compact"
+                      ariaLabel="Filter stock registers by status"
+                      options={[
+                        { value: "all", label: "All statuses" },
+                        { value: "active", label: "Active" },
+                        { value: "inactive", label: "Disabled" },
+                      ]}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
           <div className="filter-bar-right">
-            <DensityToggle density={density} setDensity={setDensity} />
-            <div className="seg" title="View mode">
-              <button type="button" className={"seg-btn icon-only" + (mode === "table" ? " active" : "")} onClick={() => setMode("table")} title="Table">
-                <Ic d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" size={14} />
-              </button>
-              <button type="button" className={"seg-btn icon-only" + (mode === "grid" ? " active" : "")} onClick={() => setMode("grid")} title="Grid">
-                <Ic d={<><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /></>} size={14} />
-              </button>
-            </div>
-            {canManageRegisters && (
+            {selectedGroup && (
+              <>
+                <DensityToggle density={density} setDensity={setDensity} />
+                <div className="seg" title="View mode">
+                  <button type="button" className={"seg-btn icon-only" + (mode === "table" ? " active" : "")} onClick={() => setMode("table")} title="Table">
+                    <Ic d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" size={14} />
+                  </button>
+                  <button type="button" className={"seg-btn icon-only" + (mode === "grid" ? " active" : "")} onClick={() => setMode("grid")} title="Grid">
+                    <Ic d={<><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /></>} size={14} />
+                  </button>
+                </div>
+              </>
+            )}
+            {canCreateRegister && (
               <Button type="button" size="sm" onClick={openCreateModal} disabled={pageBusy}>
                 <Ic d="M12 5v14M5 12h14" size={14} />
                 Add Register
@@ -797,7 +956,26 @@ export function StockRegisterListView() {
           </div>
         </div>
 
-        {mode === "table" ? (
+        {!selectedGroup ? (
+          departmentView.length === 0 ? (
+            <div className="table-card">
+              <div style={{ padding: 24, textAlign: "center", color: "var(--muted)" }}>
+                {registers.length === 0 ? "No stock registers yet." : "No departments match the current search."}
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="muted-note mono" style={{ marginBottom: 12 }}>
+                {departmentGroups.length} department{departmentGroups.length === 1 ? "" : "s"} · {registers.length} register{registers.length === 1 ? "" : "s"}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>
+                {departmentView.map(group => (
+                  <DepartmentCard key={group.key} group={group} onOpen={() => setSelectedDeptKey(group.key)} />
+                ))}
+              </div>
+            </>
+          )
+        ) : mode === "table" ? (
           <div className="table-card">
             <div className="table-card-head">
               <div className="table-card-head-left">
@@ -805,7 +983,7 @@ export function StockRegisterListView() {
                 <div className="table-count">
                   <span className="mono">{filteredRegisters.length}</span>
                   <span>of</span>
-                  <span className="mono">{registers.length}</span>
+                  <span className="mono">{selectedGroup.registers.length}</span>
                   <span>registers</span>
                 </div>
               </div>
@@ -837,13 +1015,14 @@ export function StockRegisterListView() {
                         key={register.id}
                         register={register}
                         canEdit={canManageRegisters}
-                        canDelete={canDeleteRegisters && register.can_delete !== false}
+                        canDelete={canDeleteRegister && register.can_delete !== false}
                         pageBusy={pageBusy}
                         deleteBusy={deleteBusyRegisterId === register.id}
                         onEdit={() => { setEditingRegister(register); setModalOpen(true); }}
                         onDelete={() => handleDelete(register)}
                         onClose={() => { setLifecycleError(null); setStatusModal({ mode: "close", register }); }}
                         onReopen={() => { setLifecycleError(null); setStatusModal({ mode: "reopen", register }); }}
+                        onOpen={() => router.push(`/stock-registers/${register.id}`)}
                       />
                     ))
                   )}
@@ -865,13 +1044,14 @@ export function StockRegisterListView() {
                 key={register.id}
                 register={register}
                 canEdit={canManageRegisters}
-                canDelete={canDeleteRegisters && register.can_delete !== false}
+                canDelete={canDeleteRegister && register.can_delete !== false}
                 pageBusy={pageBusy}
                 deleteBusy={deleteBusyRegisterId === register.id}
                 onEdit={() => { setEditingRegister(register); setModalOpen(true); }}
                 onDelete={() => handleDelete(register)}
                 onClose={() => { setLifecycleError(null); setStatusModal({ mode: "close", register }); }}
                 onReopen={() => { setLifecycleError(null); setStatusModal({ mode: "reopen", register }); }}
+                onOpen={() => router.push(`/stock-registers/${register.id}`)}
               />
             ))}
           </div>

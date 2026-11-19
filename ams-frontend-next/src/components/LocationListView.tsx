@@ -1,13 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ListPagination } from "@/components/ListPagination";
 import { ThemedSelect } from "@/components/ThemedSelect";
 import { Topbar } from "@/components/Topbar";
 import { LocationModal } from "@/components/LocationModal";
-import { apiFetch, type Page } from "@/lib/api";
+import { apiFetch, friendlyMessage, type Page } from "@/lib/api";
 import { LOCATION_TAG_CATEGORY_LABELS, LOCATION_TYPE_LABELS, locationTagCategoryLabel, locationTypeLabel, relTime, type LocationRecord, type LocationTagRecord } from "@/lib/userUiShared";
 import { useCan, useCapabilities } from "@/contexts/CapabilitiesContext";
 import { useCopilotAction } from "@/hooks/useCopilotAction";
@@ -80,7 +79,7 @@ function LocationTypeChips({ location }: { location: LocationRecord }) {
 }
 
 function deleteBlockedMessage(blockers: string[] | undefined, fallback: string) {
-  return blockers && blockers.length > 0 ? blockers.join(" ") : fallback;
+  return blockers && blockers.length > 0 ? blockers.map(friendlyMessage).join(" ") : fallback;
 }
 
 type TagFormState = {
@@ -544,7 +543,17 @@ export function LocationListView({ variant, parentId }: LocationListViewProps) {
   const canDeleteLocation = useCan("locations", "full");
 
   const [locations, setLocations] = useState<LocationRecord[]>([]);
-  const [parentLocation, setParentLocation] = useState<LocationRecord | null>(null);
+  const [selectedParentId, setSelectedParentId] = useState<number | null>(() => {
+    if (variant === "children" && parentId) {
+      const parsed = Number(parentId);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  });
+  const parentLocation = useMemo(
+    () => (selectedParentId == null ? null : locations.find(l => l.id === selectedParentId) ?? null),
+    [locations, selectedParentId],
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -561,25 +570,12 @@ export function LocationListView({ variant, parentId }: LocationListViewProps) {
   const clearActionError = useCallback(() => setActionError(null), []);
 
   const loadLocations = useCallback(async ({ showLoading = true }: { showLoading?: boolean } = {}) => {
-    if (variant === "children" && !parentId) return false;
     if (showLoading) setIsLoading(true);
     setFetchError(null);
     try {
-      const listPath = variant === "children"
-        ? `/api/inventory/locations/${parentId}/children/`
-        : "/api/inventory/locations/standalone/";
-      if (variant === "children") {
-        const [parent, data] = await Promise.all([
-          apiFetch<LocationRecord>(`/api/inventory/locations/${parentId}/`),
-          apiFetch<Page<LocationRecord> | LocationRecord[]>(listPath),
-        ]);
-        setParentLocation(parent);
-        setLocations(Array.isArray(data) ? data : data.results);
-        return true;
-      }
-
-      const data = await apiFetch<Page<LocationRecord> | LocationRecord[]>(listPath);
-      setParentLocation(null);
+      const data = await apiFetch<Page<LocationRecord> | LocationRecord[]>(
+        "/api/inventory/locations/?page_size=500",
+      );
       setLocations(Array.isArray(data) ? data : data.results);
       return true;
     } catch (err) {
@@ -588,7 +584,7 @@ export function LocationListView({ variant, parentId }: LocationListViewProps) {
     } finally {
       if (showLoading) setIsLoading(false);
     }
-  }, [parentId, variant]);
+  }, []);
 
   useEffect(() => {
     if (capsLoading) return;
@@ -640,9 +636,14 @@ export function LocationListView({ variant, parentId }: LocationListViewProps) {
     }
   }, [busyAction, clearActionError, loadLocations]);
 
+  const directChildren = useMemo(
+    () => locations.filter(l => (l.parent_location ?? null) === selectedParentId),
+    [locations, selectedParentId],
+  );
+
   const filteredLocations = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const matches = locations.filter(location => {
+    const matches = directChildren.filter(location => {
       if (q) {
         const tagText = (location.tags_display ?? []).map(tag => `${tag.name} ${tag.category_display ?? tag.category}`).join(" ");
         const hay = `${location.name} ${location.code} ${location.parent_location_display ?? ""} ${tagText} ${location.in_charge ?? ""} ${location.location_type} ${location.is_store ? "store inventory stock" : ""}`.toLowerCase();
@@ -653,30 +654,18 @@ export function LocationListView({ variant, parentId }: LocationListViewProps) {
       if (statusFilter === "inactive" && location.is_active) return false;
       return true;
     });
+    matches.sort((a, b) => a.name.localeCompare(b.name));
+    return matches;
+  }, [directChildren, search, typeFilter, statusFilter]);
 
-    // Depth-first tree ordering so parents appear before their children.
-    const byId = new Map<number, LocationRecord>();
-    matches.forEach(l => byId.set(l.id, l));
-    const childrenByParent = new Map<number | null, LocationRecord[]>();
-    matches.forEach(l => {
-      const parentKey = l.parent_location != null && byId.has(l.parent_location) ? l.parent_location : null;
-      if (!childrenByParent.has(parentKey)) childrenByParent.set(parentKey, []);
-      childrenByParent.get(parentKey)!.push(l);
+  const childCountByParent = useMemo(() => {
+    const counts = new Map<number, number>();
+    locations.forEach(l => {
+      if (l.parent_location == null) return;
+      counts.set(l.parent_location, (counts.get(l.parent_location) ?? 0) + 1);
     });
-    childrenByParent.forEach(arr => arr.sort((a, b) => a.name.localeCompare(b.name)));
-
-    const ordered: LocationRecord[] = [];
-    const walk = (parentId: number | null, depth: number) => {
-      const kids = childrenByParent.get(parentId) ?? [];
-      for (const kid of kids) {
-        (kid as LocationRecord & { _depth?: number })._depth = depth;
-        ordered.push(kid);
-        walk(kid.id, depth + 1);
-      }
-    };
-    walk(null, 0);
-    return ordered;
-  }, [locations, search, typeFilter, statusFilter]);
+    return counts;
+  }, [locations]);
 
   const typeOptions = useMemo(() => {
     const values = new Set<string>(Object.keys(LOCATION_TYPE_LABELS));
@@ -688,18 +677,40 @@ export function LocationListView({ variant, parentId }: LocationListViewProps) {
 
   const pageBusy = busyAction !== null;
   const deleteBusyLocationId = busyAction?.kind === "delete" ? busyAction.locationId : null;
-  const isChildrenView = variant === "children";
-  const rootLocation = variant === "standalone"
-    ? locations.find(location => location.parent_location === null) ?? null
-    : null;
+  const isChildrenView = selectedParentId !== null;
   const title = isChildrenView ? (parentLocation?.name ?? "Locations") : "Locations";
   const tableLabel = isChildrenView ? "Sub-locations list" : "Locations list";
   const createLabel = isChildrenView ? "Add Sub Location" : "Add Location";
   const emptyMessage = isChildrenView ? "No sub-locations match the current filters." : "No locations match the current filters.";
-  const footerLabel = isChildrenView ? "Direct children" : "Standalone locations";
   const modalCreateContext = isChildrenView ? "child" : "default";
   const modalLockedParent = isChildrenView ? parentLocation : null;
-  const openLocation = isChildrenView ? undefined : (location: LocationRecord) => router.push(`/locations/${location.id}`);
+  const openLocation = (location: LocationRecord) => {
+    setSelectedParentId(location.id);
+  };
+
+  useEffect(() => {
+    setSearch("");
+    setTypeFilter("all");
+    setStatusFilter("all");
+    // Reset list filters whenever the drill-down target changes so a stale
+    // search from one level doesn't silently filter an unrelated level.
+  }, [selectedParentId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const nextPath = selectedParentId == null ? "/locations" : `/locations/${selectedParentId}`;
+    if (window.location.pathname !== nextPath) {
+      window.history.replaceState(window.history.state, "", nextPath);
+    }
+  }, [selectedParentId]);
+
+  const goUpOne = useCallback(() => {
+    if (parentLocation?.parent_location != null) {
+      setSelectedParentId(parentLocation.parent_location);
+    } else {
+      setSelectedParentId(null);
+    }
+  }, [parentLocation]);
   const openCreateModal = useCallback(() => {
     clearActionError();
     setEditingLocation(null);
@@ -718,7 +729,7 @@ export function LocationListView({ variant, parentId }: LocationListViewProps) {
     pageStart,
     pageEnd,
     setPage,
-  } = useClientPagination(filteredLocations, LOCATIONS_PAGE_SIZE, [search, typeFilter, statusFilter, variant, parentId]);
+  } = useClientPagination(filteredLocations, LOCATIONS_PAGE_SIZE, [search, typeFilter, statusFilter, selectedParentId]);
 
   const locationListControls = useCopilotListControls({
     entity: isChildrenView ? "sub_location" : "location",
@@ -770,7 +781,7 @@ export function LocationListView({ variant, parentId }: LocationListViewProps) {
   // inspections "department" foreign key is a Location id; this readable
   // is the source of truth for that lookup when /locations is the page.
   const locationsListReadable = useMemo(() => buildCopilotListContext({
-    route: isChildrenView ? `/locations/${parentId}` : "/locations",
+    route: selectedParentId == null ? "/locations" : `/locations/${selectedParentId}`,
     entity: "location",
     total: locations.length,
     filteredTotal: filteredLocations.length,
@@ -801,7 +812,7 @@ export function LocationListView({ variant, parentId }: LocationListViewProps) {
     },
     loading: isLoading || capsLoading,
     extra: {
-      variant,
+      variant: isChildrenView ? "children" : "standalone",
       parent_location: parentLocation
         ? { id: parentLocation.id, name: parentLocation.name, code: parentLocation.code }
         : null,
@@ -809,8 +820,7 @@ export function LocationListView({ variant, parentId }: LocationListViewProps) {
   }), [
     canAddLocation,
     isChildrenView,
-    parentId,
-    variant,
+    selectedParentId,
     parentLocation,
     locations.length,
     filteredLocations.length,
@@ -919,12 +929,17 @@ export function LocationListView({ variant, parentId }: LocationListViewProps) {
           </div>
           <div className="page-head-actions">
             {isChildrenView ? (
-              <Button asChild variant="outline" size="sm" className="page-head-back">
-                <Link href="/locations">
+              <>
+                <Button type="button" variant="outline" size="sm" className="page-head-back" onClick={goUpOne}>
                   <Ic d="M19 12H5M12 19l-7-7 7-7" size={12} />
-                  Back to Locations
-                </Link>
-              </Button>
+                  {parentLocation?.parent_location != null ? "Up one level" : "Back to Locations"}
+                </Button>
+                {parentLocation?.parent_location != null && (
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedParentId(null)}>
+                    All locations
+                  </Button>
+                )}
+              </>
             ) : null}
           </div>
         </div>

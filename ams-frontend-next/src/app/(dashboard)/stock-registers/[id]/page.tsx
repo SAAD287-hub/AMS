@@ -7,7 +7,7 @@ import { Topbar } from "@/components/Topbar";
 import { Button } from "@/components/ui/button";
 import { useCan, useCapabilities } from "@/contexts/CapabilitiesContext";
 import { apiFetch, type Page } from "@/lib/api";
-import { type StockRegisterRecord } from "@/lib/userUiShared";
+import { registerTypeFullName, type StockRegisterRecord } from "@/lib/userUiShared";
 
 interface StockRegisterWithDepartment extends StockRegisterRecord {
   department?: { id: number; name: string } | null;
@@ -191,7 +191,7 @@ export default function DigitalRegisterDetailPage() {
 
   return (
     <div data-density="balanced">
-      <Topbar breadcrumb={["Operations", "Digital Registers", register?.register_number ?? "Register"]} />
+      <Topbar breadcrumb={["Operations", "Stock Registers", register?.register_number ?? "Register"]} />
 
       <div className="page">
         {fetchError && (
@@ -203,19 +203,21 @@ export default function DigitalRegisterDetailPage() {
         <div className="page-head" style={{ gap: 12 }}>
           <div className="page-title-group">
             <div className="eyebrow mono" style={{ marginBottom: 4 }}>
-              <Link href="/digital-registers" style={{ color: "var(--text-2)" }}>
-                Digital Registers
+              <Link href="/stock-registers" style={{ color: "var(--text-2)" }}>
+                Stock Registers
               </Link>
             </div>
             <h1>{register?.register_number ?? (isLoading ? "Loading…" : "Register")}</h1>
             {register && (
               <div className="muted-note" style={{ marginTop: 4 }}>
-                {register.register_type === "CSR" ? "Consumable Stock Register" : "Dead Stock Register"}
+                <span title={registerTypeFullName(register.register_type)}>
+                  {register.register_type}
+                </span>
               </div>
             )}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Button type="button" variant="outline" size="sm" onClick={() => router.push("/digital-registers")}>
+            <Button type="button" variant="outline" size="sm" onClick={() => router.push("/stock-registers")}>
               <Ic d="M15 18l-6-6 6-6" size={12} />
               <span>Back</span>
             </Button>
@@ -237,7 +239,7 @@ export default function DigitalRegisterDetailPage() {
                 <div>
                   <div className="eyebrow">Type</div>
                   <div style={{ fontSize: 14, color: "var(--text-1)" }}>
-                    <span className="chip">{register.register_type === "CSR" ? "Consumable" : "Dead Stock"}</span>
+                    <span className="chip" title={registerTypeFullName(register.register_type)}>{register.register_type}</span>
                   </div>
                 </div>
                 <div>

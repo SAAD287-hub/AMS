@@ -14,4 +14,5 @@ from .stock_register_model import *
 from .depreciation_model import *
 from .maintenance_model import *
 from .vendor_model import *
+from .accounting_unit_model import *
 

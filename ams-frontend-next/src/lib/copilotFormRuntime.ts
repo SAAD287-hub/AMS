@@ -1,4 +1,4 @@
-import { extractApiErrorDetails } from "@/lib/api";
+import { extractApiErrorDetails, friendlyMessage } from "@/lib/api";
 import * as z from "zod";
 
 export type CopilotFormChangeSource = "assistant" | "user" | "mixed";
@@ -1318,7 +1318,7 @@ export function normalizeCopilotSubmitError(error: unknown): CopilotSubmitFailur
     errorType: apiStatus ? "backend_error" : "submit_exception",
     message:
       details.message
-      ?? (error instanceof Error ? error.message : String(error || "Failed to submit form.")),
+      ?? friendlyMessage(error instanceof Error ? error.message : String(error || "Failed to submit form.")),
     status: apiStatus,
     fieldErrors: hasFieldErrors ? details.fieldErrors : undefined,
     globalErrors: hasGlobalErrors ? details.globalErrors : undefined,

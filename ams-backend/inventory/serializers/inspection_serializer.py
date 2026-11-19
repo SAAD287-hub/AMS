@@ -56,7 +56,7 @@ class InspectionItemSerializer(serializers.ModelSerializer):
     item_name = serializers.CharField(source='item.name', read_only=True)
     item_code = serializers.CharField(source='item.code', read_only=True)
     item_category_type = serializers.CharField(source='item.category.get_category_type', read_only=True)
-    item_tracking_type = serializers.CharField(source='item.category.get_tracking_type', read_only=True)
+    item_tracking_type = serializers.CharField(source='item.get_tracking_type', read_only=True)
     central_register_name = serializers.CharField(source='central_register.register_number', read_only=True)
     stock_register_name = serializers.CharField(source='stock_register.register_number', read_only=True)
     depreciation_asset_class_name = serializers.CharField(source='depreciation_asset_class.display_name', read_only=True, allow_null=True)

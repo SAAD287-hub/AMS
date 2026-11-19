@@ -39,8 +39,8 @@ export interface QuantityCorrectionUiCopy {
 export function getCorrectionModeCopy(mode: CorrectionMode): CorrectionModeCopy {
   if (mode === "reversal") {
     return {
-      actionLabel: "Request Full Return",
-      title: "Request Full Return",
+      actionLabel: "Reverse full receipt",
+      title: "Reverse full receipt",
       submitLabel: "Submit Full Return Request",
       disclaimerTitle: "Use only for a wrong transfer",
       disclaimer:

@@ -23,3 +23,4 @@ from .maintenance_views import (
     MaintenancePlanViewSet,
     MaintenanceWorkOrderViewSet,
 )
+from .accounting_unit_views import AccountingUnitViewSet

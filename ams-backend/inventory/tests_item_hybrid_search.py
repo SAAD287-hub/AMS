@@ -278,3 +278,25 @@ class SemanticScoreFloorTests(TestCase):
         ids = [h.id for h in hits]
         self.assertIn(self.close_item.id, ids)
         self.assertIn(self.far_item.id, ids)
+
+
+# ---------------------------------------------------------------------------
+# SQL shape: tracking_type filter must honor the per-item override
+# ---------------------------------------------------------------------------
+
+import inspect as _inspect
+
+
+class HybridSearchSqlShapeTests(TestCase):
+    """The tracking_type filter in item_search.py now reads
+    ``inventory_item.tracking_type`` as the first preference, then falls back
+    through the two category levels. This test guards the SQL text itself so
+    the ordering can't silently regress."""
+
+    def test_sql_coalesces_item_first_then_category_levels(self):
+        src = _inspect.getsource(item_search._run_sql)
+        self.assertIn(
+            "COALESCE(inventory_item.tracking_type, parent_cat.tracking_type, cat.tracking_type)",
+            src,
+            "tracking_type filter must coalesce item > parent_cat > cat so per-item override wins.",
+        )

@@ -73,6 +73,54 @@ class ItemDomainPermissionBootstrapTests(TestCase):
         )
 
 
+class ItemTrackingTypeResolverTests(TestCase):
+    """Item.get_tracking_type() is the source of truth that signals, services,
+    and views consult. Verify the three-level preference order."""
+
+    def _make_item(self, item_tt, cat_tt, parent_tt=None):
+        parent = Category.objects.create(
+            name=f'TTR Parent {item_tt or "N"}-{cat_tt or "N"}-{parent_tt or "N"}',
+            category_type=CategoryType.FIXED_ASSET,
+            tracking_type=parent_tt,
+        )
+        child = Category.objects.create(
+            name=f'TTR Child {item_tt or "N"}-{cat_tt or "N"}-{parent_tt or "N"}',
+            parent_category=parent,
+            category_type=CategoryType.FIXED_ASSET,
+            tracking_type=cat_tt,
+        )
+        return Item.objects.create(
+            name=f'TTR Item {item_tt or "N"}-{cat_tt or "N"}-{parent_tt or "N"}',
+            category=child,
+            tracking_type=item_tt,
+            acct_unit='unit',
+            description='Resolver test item.',
+        )
+
+    def test_item_tracking_type_wins_over_category(self):
+        item = self._make_item(
+            item_tt=TrackingType.QUANTITY,
+            cat_tt=TrackingType.INDIVIDUAL,
+        )
+        self.assertEqual(item.get_tracking_type(), TrackingType.QUANTITY)
+
+    def test_falls_back_to_category_when_item_blank(self):
+        item = self._make_item(item_tt=None, cat_tt=TrackingType.INDIVIDUAL)
+        self.assertEqual(item.get_tracking_type(), TrackingType.INDIVIDUAL)
+
+    def test_walks_to_parent_category_when_child_and_item_blank(self):
+        item = self._make_item(
+            item_tt=None,
+            cat_tt=None,
+            parent_tt=TrackingType.QUANTITY,
+        )
+        self.assertEqual(item.get_tracking_type(), TrackingType.QUANTITY)
+
+    def test_returns_none_when_nothing_is_set(self):
+        item = self._make_item(item_tt=None, cat_tt=None)
+        self.assertIsNone(item.get_tracking_type())
+
+
 class StockEntryDomainPermissionBootstrapTests(TestCase):
     def test_stock_entry_domain_permissions_exist(self):
         perms = set(
@@ -1185,6 +1233,7 @@ class InspectionWorkflowReturnAndCancellationTests(TestCase):
             {
                 'name': 'Workflow Provisional API Item',
                 'category': self.child_category.id,
+                'tracking_type': 'INDIVIDUAL',
                 'acct_unit': 'unit',
                 'low_stock_threshold': 1,
                 'description': 'Inspection-created provisional item',
@@ -2291,7 +2340,8 @@ class CategoryApiDomainPermissionTests(TestCase):
 
         self.assertEqual(resp.status_code, 403)
 
-    def test_create_allows_domain_create_categories_perm(self):
+    def test_create_rejects_non_admin_with_create_categories_perm(self):
+        """Category creation is admin-only; the domain perm alone is not enough."""
         user = self._make_user('category_domain_create')
         user.user_permissions.add(self._perm('create_categories'))
 
@@ -2300,6 +2350,23 @@ class CategoryApiDomainPermissionTests(TestCase):
             '/api/inventory/categories/',
             {
                 'name': 'Domain Created Category',
+                'category_type': CategoryType.CONSUMABLE,
+            },
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 403)
+
+    def test_create_allows_superuser(self):
+        user = self._make_user('category_admin_create')
+        user.is_superuser = True
+        user.save()
+
+        self.client.force_authenticate(user=user)
+        resp = self.client.post(
+            '/api/inventory/categories/',
+            {
+                'name': 'Admin Created Category',
                 'category_type': CategoryType.CONSUMABLE,
             },
             format='json',
@@ -2358,7 +2425,8 @@ class CategoryApiDomainPermissionTests(TestCase):
 
     def test_create_with_notes_succeeds_without_invalid_model_kwargs(self):
         user = self._make_user('category_notes_create')
-        user.user_permissions.add(self._perm('create_categories'))
+        user.is_superuser = True
+        user.save()
 
         self.client.force_authenticate(user=user)
         resp = self.client.post(
@@ -2394,7 +2462,9 @@ class CategoryApiDomainPermissionTests(TestCase):
         self.category.refresh_from_db()
         self.assertEqual(self.category.name, 'Existing Category (Updated With Notes)')
 
-    def test_patch_rejects_subcategory_tracking_type_change(self):
+    def test_patch_allows_subcategory_tracking_type_change(self):
+        """Category-level tracking_type is now an optional fallback, freely mutable
+        by an authorized editor; the per-item lock sits on Item instead."""
         user = self._make_user('category_tracking_patch')
         user.user_permissions.add(self._perm('edit_categories'))
         parent = Category.objects.create(
@@ -2417,10 +2487,9 @@ class CategoryApiDomainPermissionTests(TestCase):
             format='json',
         )
 
-        self.assertEqual(resp.status_code, 400)
-        self.assertIn('tracking_type', resp.data)
+        self.assertEqual(resp.status_code, 200)
         child.refresh_from_db()
-        self.assertEqual(child.tracking_type, TrackingType.INDIVIDUAL)
+        self.assertEqual(child.tracking_type, TrackingType.QUANTITY)
 
 
 class ItemApiDomainPermissionTests(TestCase):
@@ -2552,14 +2621,95 @@ class ItemApiDomainPermissionTests(TestCase):
             {
                 'name': 'Domain Created Item',
                 'category': self.subcategory.id,
+                'tracking_type': 'INDIVIDUAL',
                 'acct_unit': 'unit',
                 'low_stock_threshold': 4,
+                'description': 'A domain-created test item.',
             },
             format='json',
         )
 
         self.assertEqual(resp.status_code, 201)
         self.assertEqual(resp.data['low_stock_threshold'], 4)
+        self.assertEqual(resp.data['tracking_type'], 'INDIVIDUAL')
+        self.assertEqual(resp.data['resolved_tracking_type'], 'INDIVIDUAL')
+
+    def test_create_requires_tracking_type(self):
+        """New items must explicitly carry their own tracking_type."""
+        user = self._make_user('item_requires_tracking')
+        user.user_permissions.add(self._perm('create_items'))
+
+        self.client.force_authenticate(user=user)
+        resp = self.client.post(
+            '/api/inventory/items/',
+            {
+                'name': 'Trackingless Item',
+                'category': self.subcategory.id,
+                'acct_unit': 'unit',
+                'low_stock_threshold': 1,
+                'description': 'This should be rejected.',
+            },
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 400, resp.data)
+        self.assertIn('tracking_type', resp.data)
+
+    def test_patch_rejects_tracking_type_change_after_instances_exist(self):
+        """Once ItemInstance rows exist, the per-item tracking_type is locked."""
+        user = self._make_user('item_tracking_lock')
+        user.user_permissions.add(self._perm('edit_items'))
+        # self.item already has self.instance (INDIVIDUAL) in setUpTestData.
+        self.item.tracking_type = TrackingType.INDIVIDUAL
+        self.item.save(update_fields=['tracking_type'])
+
+        self.client.force_authenticate(user=user)
+        resp = self.client.patch(
+            f'/api/inventory/items/{self.item.id}/',
+            {'tracking_type': TrackingType.QUANTITY},
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 400, resp.data)
+        self.assertIn('tracking_type', resp.data)
+        self.item.refresh_from_db()
+        self.assertEqual(self.item.tracking_type, TrackingType.INDIVIDUAL)
+
+    def test_patch_allows_tracking_type_change_with_no_instances_or_batches(self):
+        """Without instances or batches, the per-item tracking_type is free to change."""
+        user = self._make_user('item_tracking_free')
+        user.user_permissions.add(self._perm('edit_items'))
+        # Fresh item with no dependents.
+        fresh = Item.objects.create(
+            name='Fresh Item',
+            category=self.subcategory,
+            tracking_type=TrackingType.INDIVIDUAL,
+            acct_unit='unit',
+            description='Fresh enough to flip.',
+        )
+
+        self.client.force_authenticate(user=user)
+        resp = self.client.patch(
+            f'/api/inventory/items/{fresh.id}/',
+            {'tracking_type': TrackingType.QUANTITY},
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, 200, resp.data)
+        fresh.refresh_from_db()
+        self.assertEqual(fresh.tracking_type, TrackingType.QUANTITY)
+
+    def test_list_exposes_instance_and_batch_counts(self):
+        """The item form reads these counts to disable the tracking_type dropdown."""
+        user = self._make_user('item_counts_view')
+        user.user_permissions.add(self._perm('view_items'))
+
+        self.client.force_authenticate(user=user)
+        resp = self.client.get(f'/api/inventory/items/{self.item.id}/')
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['instance_count'], 1)
+        self.assertEqual(resp.data['batch_count'], 1)
 
     def test_list_exposes_low_stock_threshold_and_flag(self):
         self.item.low_stock_threshold = 10
@@ -5495,6 +5645,16 @@ class StockRegisterApiPermissionAndScopeTests(TestCase):
         user.profile.assigned_locations.add(assigned_location)
         return user
 
+    def _promote_to_system_admin(self, user):
+        """Register create/delete is admin-only now; promote via group so the
+        serializer's store-scope validation still fires on top of the admin
+        bypass. is_superuser would short-circuit scope validation and break
+        the scope-rejection assertions in this class."""
+        from django.contrib.auth.models import Group
+        group, _ = Group.objects.get_or_create(name='System Admin')
+        user.groups.add(group)
+        return user
+
     def _rows(self, response):
         data = response.data
         if isinstance(data, dict) and 'results' in data:
@@ -5607,6 +5767,7 @@ class StockRegisterApiPermissionAndScopeTests(TestCase):
     def test_create_allows_domain_create_stock_registers_perm_for_directly_assigned_store(self):
         user = self._make_user('stock_register_creator', self.csit_store)
         user.user_permissions.add(self._perm('create_stock_registers'))
+        self._promote_to_system_admin(user)
 
         self.client.force_authenticate(user=user)
         resp = self.client.post('/api/inventory/stock-registers/', self._payload(register_number='CSR-CREATE-OK'), format='json')
@@ -5614,17 +5775,17 @@ class StockRegisterApiPermissionAndScopeTests(TestCase):
         self.assertEqual(resp.status_code, 201)
         self.assertEqual(resp.data['store'], self.csit_store.id)
 
-    def test_create_rejects_standalone_assignment_without_direct_store_assignment(self):
+    def test_create_rejects_non_admin_standalone_assignment(self):
+        """Register create is admin-only now; the old fine-grained scope reject is subsumed by the permission check."""
         user = self._make_user('stock_register_creator_standalone_only', self.csit)
         user.user_permissions.add(self._perm('create_stock_registers'))
 
         self.client.force_authenticate(user=user)
         resp = self.client.post('/api/inventory/stock-registers/', self._payload(register_number='CSR-CSIT-NO-DIRECT-STORE'), format='json')
 
-        self.assertEqual(resp.status_code, 400)
-        self.assertIn('store', resp.data)
+        self.assertEqual(resp.status_code, 403)
 
-    def test_create_rejects_sibling_store_for_directly_assigned_store_user(self):
+    def test_create_rejects_non_admin_sibling_store(self):
         user = self._make_user('stock_register_creator_direct_store_only', self.csit_store)
         user.user_permissions.add(self._perm('create_stock_registers'))
 
@@ -5635,10 +5796,9 @@ class StockRegisterApiPermissionAndScopeTests(TestCase):
             format='json',
         )
 
-        self.assertEqual(resp.status_code, 400)
-        self.assertIn('store', resp.data)
+        self.assertEqual(resp.status_code, 403)
 
-    def test_create_rejects_out_of_scope_store_even_with_create_perm(self):
+    def test_create_rejects_non_admin_out_of_scope_store(self):
         user = self._make_user('stock_register_creator_scoped', self.csit)
         user.user_permissions.add(self._perm('create_stock_registers'))
 
@@ -5649,10 +5809,9 @@ class StockRegisterApiPermissionAndScopeTests(TestCase):
             format='json',
         )
 
-        self.assertEqual(resp.status_code, 400)
-        self.assertIn('store', resp.data)
+        self.assertEqual(resp.status_code, 403)
 
-    def test_create_rejects_root_standalone_user_without_direct_store_assignment(self):
+    def test_create_rejects_non_admin_root_standalone_user(self):
         user = self._make_user('stock_register_root_scope_only', self.root)
         user.user_permissions.add(self._perm('create_stock_registers'))
 
@@ -5663,30 +5822,32 @@ class StockRegisterApiPermissionAndScopeTests(TestCase):
             format='json',
         )
 
-        self.assertEqual(resp.status_code, 400)
-        self.assertIn('store', resp.data)
+        self.assertEqual(resp.status_code, 403)
 
-    def test_create_root_standalone_user_only_allows_directly_assigned_stores(self):
+    def test_create_as_system_admin_bypasses_store_scope(self):
+        """A System Admin can create registers for any store — scope checks are
+        intentionally bypassed for admins, matching the group-level bypass in
+        the viewset queryset and the user_management profile helpers."""
         user = User.objects.create_user(username='stock_register_root_direct_store', password='pw')
         user.profile.assigned_locations.add(self.root, self.central_store)
         user.user_permissions.add(self._perm('create_stock_registers'))
+        self._promote_to_system_admin(user)
 
         self.client.force_authenticate(user=user)
-        ok_resp = self.client.post(
+        central_resp = self.client.post(
             '/api/inventory/stock-registers/',
             self._payload(register_number='CSR-ROOT-DIRECT-OK', store=self.central_store.id),
             format='json',
         )
-        blocked_resp = self.client.post(
+        sibling_resp = self.client.post(
             '/api/inventory/stock-registers/',
-            self._payload(register_number='CSR-ROOT-DIRECT-BLOCKED', store=self.root_lab_store.id),
+            self._payload(register_number='CSR-ROOT-DIRECT-OK-SIBLING', store=self.root_lab_store.id),
             format='json',
         )
 
-        self.assertEqual(ok_resp.status_code, 201, ok_resp.data)
-        self.assertEqual(ok_resp.data['store'], self.central_store.id)
-        self.assertEqual(blocked_resp.status_code, 400)
-        self.assertIn('store', blocked_resp.data)
+        self.assertEqual(central_resp.status_code, 201, central_resp.data)
+        self.assertEqual(central_resp.data['store'], self.central_store.id)
+        self.assertEqual(sibling_resp.status_code, 201, sibling_resp.data)
 
     def test_update_requires_domain_edit_stock_registers_perm(self):
         user = self._make_user('stock_register_view_patch', self.csit)
@@ -5801,6 +5962,7 @@ class StockRegisterApiPermissionAndScopeTests(TestCase):
         register = StockRegister.objects.create(register_number='CSR-DELETE-ME', register_type='CSR', store=self.csit_store)
         user = self._make_user('stock_register_deleter', self.csit)
         user.user_permissions.add(self._perm('delete_stock_registers'))
+        self._promote_to_system_admin(user)
 
         self.client.force_authenticate(user=user)
         resp = self.client.delete(f'/api/inventory/stock-registers/{register.id}/')

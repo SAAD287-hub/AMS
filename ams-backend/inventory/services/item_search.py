@@ -131,10 +131,10 @@ def _run_sql(*, bm25_query, query_vec, have_semantic, tracking_type,
     params_tail = []
     if tracking_type:
         tracking_clause_bm25 = (
-            "AND COALESCE(parent_cat.tracking_type, cat.tracking_type) = %s"
+            "AND COALESCE(inventory_item.tracking_type, parent_cat.tracking_type, cat.tracking_type) = %s"
         )
         tracking_clause_sem = (
-            "AND COALESCE(parent_cat.tracking_type, cat.tracking_type) = %s"
+            "AND COALESCE(inventory_item.tracking_type, parent_cat.tracking_type, cat.tracking_type) = %s"
         )
 
     if have_semantic:
@@ -202,7 +202,7 @@ def _run_sql(*, bm25_query, query_vec, have_semantic, tracking_type,
            cat.name AS category_name,
            parent_cat.name AS parent_category_name,
            COALESCE(parent_cat.category_type, cat.category_type) AS category_type,
-           COALESCE(parent_cat.tracking_type, cat.tracking_type) AS tracking_type,
+           COALESCE(inventory_item.tracking_type, parent_cat.tracking_type, cat.tracking_type) AS tracking_type,
            i.description,
            i.specifications,
            i.acct_unit,

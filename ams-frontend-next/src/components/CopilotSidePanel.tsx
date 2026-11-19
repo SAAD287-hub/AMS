@@ -53,6 +53,10 @@ const CHAT_URL = process.env.NEXT_PUBLIC_COPILOT_URL ?? "http://localhost:3001";
 const CHAT_ORIGIN = CHAT_URL.replace(/\/$/, "");
 const DOCK_STORAGE_KEY = "ams-copilot-open";
 const DOCK_POS_KEY = "ams-copilot-pos";
+const LAUNCHER_POS_KEY = "ams-copilot-launcher-pos";
+const LAUNCHER_SIZE = 56;
+const LAUNCHER_EDGE_GAP = 20;
+const LAUNCHER_DRAG_THRESHOLD = 4;
 const DETACHED_COMPOSER_OPEN_KEY = "ams-copilot-detached-open";
 const DETACHED_PENDING_KEY = "ams-copilot-detached-pending";
 const DETACHED_PENDING_TTL_MS = 10 * 60 * 1000;
@@ -86,6 +90,25 @@ function loadPos(): Pos | null {
   if (typeof window === "undefined") return null;
   try {
     return JSON.parse(window.localStorage.getItem(DOCK_POS_KEY) ?? "null");
+  } catch {
+    return null;
+  }
+}
+
+function loadLauncherPos(): Pos | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(LAUNCHER_POS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Pos | null;
+    if (
+      !parsed ||
+      typeof parsed.left !== "number" ||
+      typeof parsed.top !== "number"
+    ) {
+      return null;
+    }
+    return parsed;
   } catch {
     return null;
   }
@@ -156,6 +179,7 @@ export function CopilotSidePanel() {
   const [placeholder, setPlaceholder] = useState(PLACEHOLDER_PHRASES[0]);
   const [dragPos, setDragPos] = useState<Pos | null>(loadPos);
   const [isDragging, setIsDragging] = useState(false);
+  const [launcherPos, setLauncherPos] = useState<Pos | null>(loadLauncherPos);
   const [openUiPreview, setOpenUiPreview] = useState<{
     id: string;
     code: string;
@@ -523,6 +547,74 @@ export function CopilotSidePanel() {
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
   }, []);
+
+  // ── Launcher drag ──────────────────────────────────────────────────────────
+  // Click = open composer; movement past LAUNCHER_DRAG_THRESHOLD = enter drag,
+  // suppress click and persist new position.
+  const startLauncherDrag = useCallback(
+    (e: React.MouseEvent<HTMLButtonElement>, onClick: () => void) => {
+      if (e.button !== 0) return;
+      const el = launcherRef.current;
+      if (!el) return;
+
+      const r = el.getBoundingClientRect();
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const startLeft = r.left;
+      const startTop = r.top;
+      let dragging = false;
+
+      const clamp = (v: number, lo: number, hi: number) =>
+        Math.max(lo, Math.min(hi, v));
+
+      const onMove = (ev: MouseEvent) => {
+        const dx = ev.clientX - startX;
+        const dy = ev.clientY - startY;
+        if (!dragging && Math.hypot(dx, dy) < LAUNCHER_DRAG_THRESHOLD) return;
+        if (!dragging) {
+          dragging = true;
+          ev.preventDefault();
+        }
+        const left = clamp(
+          startLeft + dx,
+          LAUNCHER_EDGE_GAP,
+          window.innerWidth - r.width - LAUNCHER_EDGE_GAP,
+        );
+        const top = clamp(
+          startTop + dy,
+          LAUNCHER_EDGE_GAP,
+          window.innerHeight - r.height - LAUNCHER_EDGE_GAP,
+        );
+        setLauncherPos({ left, top });
+      };
+
+      const onUp = (ev: MouseEvent) => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        if (dragging) {
+          const left = clamp(
+            startLeft + ev.clientX - startX,
+            LAUNCHER_EDGE_GAP,
+            window.innerWidth - r.width - LAUNCHER_EDGE_GAP,
+          );
+          const top = clamp(
+            startTop + ev.clientY - startY,
+            LAUNCHER_EDGE_GAP,
+            window.innerHeight - r.height - LAUNCHER_EDGE_GAP,
+          );
+          const pos = { left, top };
+          setLauncherPos(pos);
+          window.localStorage.setItem(LAUNCHER_POS_KEY, JSON.stringify(pos));
+        } else {
+          onClick();
+        }
+      };
+
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    },
+    [],
+  );
   // ────────────────────────────────────────────────────────────────────────────
 
   const openPanel = useCallback(() => {
@@ -1075,7 +1167,6 @@ export function CopilotSidePanel() {
             ? "AMS Copilot has a new reply"
             : `AMS Copilot has ${unreadCount} new replies`
           : "Ask AMS Copilot anything";
-  const launcherCtaLabel = launcherStatus === "approval" ? "Review" : "Open";
 
   return (
     <>
@@ -1084,15 +1175,24 @@ export function CopilotSidePanel() {
           ref={launcherRef}
           type="button"
           className={`copilot-launcher copilot-launcher--${launcherStatus}`}
-          onClick={openComposer}
-          aria-label={`Open AMS Copilot (${launcherStatusLabel})`}
-          title="Open AMS Copilot"
+          onMouseDown={(e) => startLauncherDrag(e, openPanel)}
+          aria-label={`Open AMS Copilot (${launcherStatusLabel}). ${launcherMessage}`}
+          title={launcherMessage}
+          style={
+            launcherPos
+              ? {
+                  left: launcherPos.left,
+                  top: launcherPos.top,
+                  right: "auto",
+                  bottom: "auto",
+                  transform: "none",
+                }
+              : undefined
+          }
         >
           <span className="copilot-launcher-icon" aria-hidden="true">
-            <Sparkles size={14} strokeWidth={1.9} />
+            <Sparkles size={22} strokeWidth={1.9} />
           </span>
-          <span className="copilot-launcher-message">{launcherMessage}</span>
-          <span className="copilot-launcher-cta" aria-hidden="true">{launcherCtaLabel}</span>
         </button>
       ) : null}
 

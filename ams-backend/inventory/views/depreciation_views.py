@@ -233,7 +233,7 @@ class FixedAssetRegisterEntryViewSet(viewsets.ModelViewSet):
 
         batch_quantities = list(ItemBatch.objects.select_related("item", "item__category", "item__category__parent_category").filter(
             fixed_asset_category_filter,
-            item__category__tracking_type=TrackingType.QUANTITY,
+            item__tracking_type=TrackingType.QUANTITY,
             fixed_asset_entry__isnull=True,
         ).annotate(quantity=Sum("stock_records__quantity"))[:200])
         depreciation_contexts = self._build_uncapitalized_depreciation_contexts([

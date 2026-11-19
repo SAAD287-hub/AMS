@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
-import { API_BASE, apiFetch, type Page } from "@/lib/api";
+import { API_BASE, apiFetch, friendlyMessage, type Page } from "@/lib/api";
 import { type Location, type User } from "@/lib/userUiShared";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -508,7 +508,7 @@ function AdminChangePasswordModal({
       });
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to change password.");
+      setError(friendlyMessage(err instanceof Error ? err.message : "Failed to change password."));
     } finally {
       setSubmitting(false);
     }
@@ -654,7 +654,7 @@ export function AddUserModal({
           if (cancelled) return;
           setDataLoadError(prev => ({
             ...prev,
-            groups: err instanceof Error ? err.message : "Failed to load groups.",
+            groups: friendlyMessage(err instanceof Error ? err.message : "Failed to load groups."),
           }));
         })
         .finally(() => {
@@ -676,7 +676,7 @@ export function AddUserModal({
           if (cancelled) return;
           setDataLoadError(prev => ({
             ...prev,
-            locations: err instanceof Error ? err.message : "Failed to load locations.",
+            locations: friendlyMessage(err instanceof Error ? err.message : "Failed to load locations."),
           }));
         })
         .finally(() => {
@@ -717,7 +717,7 @@ export function AddUserModal({
       })
       .catch(err => {
         if (cancelled) return;
-        setUserLoadError(err instanceof Error ? err.message : "Failed to load user details.");
+        setUserLoadError(friendlyMessage(err instanceof Error ? err.message : "Failed to load user details."));
       })
       .finally(() => {
         if (!cancelled) setUserLoading(false);
@@ -909,7 +909,7 @@ export function AddUserModal({
       await onSave?.(savedUser);
       onClose();
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : (isEditMode ? "Failed to update user." : "Failed to create user."));
+      setSubmitError(friendlyMessage(err instanceof Error ? err.message : (isEditMode ? "Failed to update user." : "Failed to create user.")));
     } finally {
       setSubmitting(false);
     }

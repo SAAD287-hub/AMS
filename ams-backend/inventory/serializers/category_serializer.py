@@ -50,15 +50,6 @@ class CategorySerializer(serializers.ModelSerializer):
         validated_data.pop('notes', None)
 
         if (
-            'tracking_type' in validated_data
-            and instance.parent_category_id
-            and validated_data['tracking_type'] != instance.tracking_type
-        ):
-            raise serializers.ValidationError({
-                'tracking_type': "Tracking type cannot be changed after subcategory creation.",
-            })
-
-        if (
             'category_type' in validated_data
             and validated_data['category_type'] != instance.category_type
         ):

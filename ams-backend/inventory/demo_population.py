@@ -886,7 +886,7 @@ class DemoDataPopulator:
 
     def _unit_price_for_item(self, item: Item) -> Decimal:
         category_type = item.category.get_category_type()
-        tracking_type = item.category.get_tracking_type()
+        tracking_type = item.get_tracking_type()
         if category_type == CategoryType.FIXED_ASSET and tracking_type == TrackingType.INDIVIDUAL:
             return Decimal("125000.00")
         if category_type == CategoryType.FIXED_ASSET:
@@ -896,7 +896,7 @@ class DemoDataPopulator:
         return Decimal("1800.00")
 
     def _accepted_quantity_for_item(self, item: Item, phase_index: int) -> int:
-        tracking_type = item.category.get_tracking_type()
+        tracking_type = item.get_tracking_type()
         if tracking_type == TrackingType.INDIVIDUAL:
             return 1 if phase_index % 2 == 0 else 2
         if item.category.get_category_type() == CategoryType.FIXED_ASSET:
@@ -967,7 +967,7 @@ class DemoDataPopulator:
                 "central_register_no": central_register.register_number,
                 "central_register_page_no": str(sequence + 101),
             }
-            if item.category.get_tracking_type() == TrackingType.QUANTITY:
+            if item.get_tracking_type() == TrackingType.QUANTITY:
                 central_updates["batch_number"] = f"{self.short_tag}-LOT-{inspection.id}"
                 if item.category.get_category_type() == CategoryType.PERISHABLE:
                     central_updates["manufactured_date"] = base_date.isoformat()
@@ -1074,7 +1074,7 @@ class DemoDataPopulator:
             for record in queryset:
                 if record.available_quantity <= 0:
                     continue
-                if record.item.category.get_tracking_type() != TrackingType.QUANTITY:
+                if record.item.get_tracking_type() != TrackingType.QUANTITY:
                     continue
                 records.append(record)
         return records
@@ -1090,7 +1090,7 @@ class DemoDataPopulator:
             return None
         for offset in range(len(record_ids)):
             record = self._fresh_allocation_record(record_ids[(start_index + offset) % len(record_ids)])
-            if record and record.available_quantity > 0 and record.item.category.get_tracking_type() == TrackingType.QUANTITY:
+            if record and record.available_quantity > 0 and record.item.get_tracking_type() == TrackingType.QUANTITY:
                 return record
         return None
 

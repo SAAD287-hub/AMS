@@ -846,7 +846,7 @@ export function Stage3Form({ data, onChange, readOnly, errors }: StageFormProps)
         open={createModalRowIndex !== null}
         mode="create"
         item={null}
-        categories={leafCategories}
+        categories={categories}
         provisionalInspectionId={data.id}
         onClose={() => setCreateModalRowIndex(null)}
         onSave={async (savedItem: ItemRecord) => {

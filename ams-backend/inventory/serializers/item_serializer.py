@@ -4,7 +4,9 @@ from decimal import Decimal
 from ..models.item_model import Item
 from ..models.inspection_model import InspectionCertificate, InspectionStage
 from .category_serializer import CategorySerializer
-from ..models.category_model import CategoryType
+from ..models.category_model import CategoryType, TrackingType
+from ..models.instance_model import ItemInstance
+from ..models.batch_model import ItemBatch
 from ..services.depreciation_service import (
     depreciation_summary_for_asset,
     empty_depreciation_summary,
@@ -15,7 +17,12 @@ from ..services.deletion_policy import get_delete_blockers
 class ItemSerializer(serializers.ModelSerializer):
     category_display = serializers.CharField(source='category.name', read_only=True)
     category_type = serializers.CharField(source='category.get_category_type', read_only=True)
-    tracking_type = serializers.CharField(source='category.get_tracking_type', read_only=True)
+    tracking_type = serializers.ChoiceField(
+        choices=TrackingType.choices,
+        required=False,
+        allow_null=True,
+    )
+    resolved_tracking_type = serializers.CharField(source='get_tracking_type', read_only=True)
     created_by_name = serializers.CharField(source='created_by.username', read_only=True)
     provisional_inspection = serializers.PrimaryKeyRelatedField(
         queryset=InspectionCertificate.objects.all(),
@@ -32,17 +39,20 @@ class ItemSerializer(serializers.ModelSerializer):
     depreciation_summary = serializers.SerializerMethodField()
     can_delete = serializers.SerializerMethodField()
     delete_blockers = serializers.SerializerMethodField()
+    instance_count = serializers.SerializerMethodField()
+    batch_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Item
         fields = (
-            'id', 'name', 'code', 'category', 'category_display', 
-            'category_type', 'tracking_type', 'description', 
+            'id', 'name', 'code', 'category', 'category_display',
+            'category_type', 'tracking_type', 'resolved_tracking_type', 'description',
             'acct_unit', 'specifications', 'low_stock_threshold',
-            'total_quantity', 
+            'total_quantity',
             'in_transit_quantity', 'available_quantity',
             'is_low_stock', 'standalone_location_count', 'is_active',
             'is_provisional', 'provisional_inspection',
+            'instance_count', 'batch_count',
             'created_at', 'updated_at',
             'created_by_name', 'depreciation_summary',
             'can_delete', 'delete_blockers',
@@ -83,6 +93,25 @@ class ItemSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
+
+        # On create, tracking_type is required so each item explicitly carries its own.
+        # On edit, allow absence (unchanged) but if present and different, forbid the
+        # change when instances/batches already exist — their semantics depend on it.
+        if self.instance is None:
+            if not attrs.get('tracking_type'):
+                raise serializers.ValidationError({
+                    'tracking_type': 'Select a tracking type (Individual or Quantity) for this item.',
+                })
+        else:
+            new_tt = attrs.get('tracking_type', self.instance.tracking_type)
+            if new_tt and new_tt != self.instance.tracking_type:
+                has_instances = ItemInstance.objects.filter(item=self.instance).exists()
+                has_batches = ItemBatch.objects.filter(item=self.instance).exists()
+                if has_instances or has_batches:
+                    raise serializers.ValidationError({
+                        'tracking_type': 'Tracking type cannot change after instances or batches exist for this item.',
+                    })
+
         provisional_inspection = attrs.get('provisional_inspection')
         wants_provisional = bool(provisional_inspection or attrs.get('is_provisional'))
         if not wants_provisional:
@@ -130,6 +159,16 @@ class ItemSerializer(serializers.ModelSerializer):
         if request and request.user:
             validated_data['created_by'] = request.user
         return super().create(validated_data)
+
+    def get_instance_count(self, obj):
+        # ItemInstance rows attached to this item. The item form uses this
+        # to lock tracking_type once individual-tracked units exist.
+        return ItemInstance.objects.filter(item=obj).count()
+
+    def get_batch_count(self, obj):
+        # ItemBatch rows attached to this item. Locks tracking_type when
+        # quantity-tracked batches already exist.
+        return ItemBatch.objects.filter(item=obj).count()
 
     def get_total_quantity(self, obj):
         return getattr(obj, 'restricted_total', 0)
